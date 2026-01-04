@@ -1,5 +1,8 @@
 import { BrowserRouter, Route, Routes } from "react-router-dom"
 import AppLayout from "./components/layout/AppLayout"
+import LoginPage from "./pages/auth/LoginPage"
+import { AuthProvider } from "./context/AuthContext"
+import { RequireAuth } from "./components/auth/RequireAuth"
 
 function Dashboard() {
     return (
@@ -39,16 +42,19 @@ function ProfilePage() {
 
 function App() {
     return (
-        <BrowserRouter>
-            <Routes>
-                <Route element={<AppLayout />}>
-                    <Route path="/" element={<Dashboard />} />
-                    <Route path="/calendar" element={<CalendarPage />} />
-                    <Route path="/upload" element={<UploadPage />} />
-                    <Route path="/profile" element={<ProfilePage />} />
-                </Route>
-            </Routes>
-        </BrowserRouter>
+        <AuthProvider>
+            <BrowserRouter>
+                <Routes>
+                    <Route path="/login" element={<LoginPage />} />
+                    <Route element={<RequireAuth><AppLayout /></RequireAuth>}>
+                        <Route path="/" element={<Dashboard />} />
+                        <Route path="/calendar" element={<CalendarPage />} />
+                        <Route path="/upload" element={<UploadPage />} />
+                        <Route path="/profile" element={<ProfilePage />} />
+                    </Route>
+                </Routes>
+            </BrowserRouter>
+        </AuthProvider>
     )
 }
 

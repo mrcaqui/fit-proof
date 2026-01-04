@@ -1,5 +1,5 @@
 import { Link, useLocation } from "react-router-dom"
-import { Calendar, Home, Upload, User, LayoutDashboard } from "lucide-react"
+import { Calendar, Home, Upload, User, LayoutDashboard, LogOut } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -7,11 +7,13 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 import { useState } from "react"
 import { ModeToggle } from "../mode-toggle"
+import { useAuth } from "@/context/AuthContext"
 
 interface SidebarProps extends React.HTMLAttributes<HTMLDivElement> { }
 
 export function Sidebar({ className }: SidebarProps) {
     const location = useLocation()
+    const { signOut } = useAuth()
 
     const items = [
         {
@@ -37,8 +39,8 @@ export function Sidebar({ className }: SidebarProps) {
     ]
 
     return (
-        <div className={cn("pb-12", className)}>
-            <div className="space-y-4 py-4">
+        <div className={cn("pb-12 flex flex-col h-full", className)}>
+            <div className="space-y-4 py-4 flex-1">
                 <div className="px-3 py-2">
                     <h2 className="mb-2 px-4 text-lg font-semibold tracking-tight">
                         FitProof
@@ -60,10 +62,16 @@ export function Sidebar({ className }: SidebarProps) {
                     </div>
                 </div>
             </div>
-            <div className="px-3 py-2 mt-auto absolute bottom-4 w-full">
-                <div className="flex items-center justify-between px-4">
-                    <span className="text-sm text-muted-foreground">Theme</span>
-                    <ModeToggle />
+            <div className="px-3 py-2 mt-auto">
+                <div className="space-y-1">
+                    <Button variant="ghost" className="w-full justify-start text-destructive hover:text-destructive" onClick={() => signOut()}>
+                        <LogOut className="mr-2 h-4 w-4" />
+                        ログアウト
+                    </Button>
+                    <div className="flex items-center justify-between px-4 py-2 border-t mt-2">
+                        <span className="text-sm text-muted-foreground">Theme</span>
+                        <ModeToggle />
+                    </div>
                 </div>
             </div>
         </div>
@@ -73,6 +81,7 @@ export function Sidebar({ className }: SidebarProps) {
 export function MobileNav() {
     const [open, setOpen] = useState(false)
     const location = useLocation()
+    const { signOut } = useAuth()
 
     const items = [
         {
@@ -136,8 +145,18 @@ export function MobileNav() {
                         )}
                     </div>
                 </ScrollArea>
-                <div className="absolute bottom-4 left-4">
-                    <ModeToggle />
+                <div className="absolute bottom-4 left-4 right-4 space-y-2">
+                    <Button variant="ghost" className="w-full justify-start text-destructive hover:text-destructive" onClick={() => {
+                        signOut()
+                        setOpen(false)
+                    }}>
+                        <LogOut className="mr-2 h-4 w-4" />
+                        ログアウト
+                    </Button>
+                    <div className="flex items-center justify-between px-2 pt-2 border-t">
+                        <span className="text-sm text-muted-foreground">Theme</span>
+                        <ModeToggle />
+                    </div>
                 </div>
             </SheetContent>
         </Sheet>
