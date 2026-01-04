@@ -1,5 +1,5 @@
 import { Link, useLocation } from "react-router-dom"
-import { Calendar, Home, Upload, User, LayoutDashboard, LogOut } from "lucide-react"
+import { Calendar, Home, Upload, User, LayoutDashboard, LogOut, Shield } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -13,7 +13,7 @@ interface SidebarProps extends React.HTMLAttributes<HTMLDivElement> { }
 
 export function Sidebar({ className }: SidebarProps) {
     const location = useLocation()
-    const { signOut } = useAuth()
+    const { signOut, profile } = useAuth()
 
     const items = [
         {
@@ -37,6 +37,15 @@ export function Sidebar({ className }: SidebarProps) {
             href: "/profile",
         },
     ]
+
+    // Only add admin item if user is admin
+    if (profile?.role === 'admin') {
+        items.push({
+            title: "Admin",
+            icon: Shield,
+            href: "/admin/deadlines",
+        })
+    }
 
     return (
         <div className={cn("pb-12 flex flex-col h-full", className)}>
@@ -81,7 +90,7 @@ export function Sidebar({ className }: SidebarProps) {
 export function MobileNav() {
     const [open, setOpen] = useState(false)
     const location = useLocation()
-    const { signOut } = useAuth()
+    const { signOut, profile } = useAuth()
 
     const items = [
         {
@@ -105,6 +114,14 @@ export function MobileNav() {
             href: "/profile",
         },
     ]
+
+    if (profile?.role === 'admin') {
+        items.push({
+            title: "Admin",
+            icon: Shield,
+            href: "/admin/deadlines",
+        })
+    }
 
     return (
         <Sheet open={open} onOpenChange={setOpen}>

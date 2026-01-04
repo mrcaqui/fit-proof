@@ -1,10 +1,14 @@
 import { createContext, useContext, useEffect, useState } from "react"
 import { Session, User } from "@supabase/supabase-js"
 import { supabase } from "@/lib/supabase"
+import { Database } from "@/types/database.types"
+
+type Profile = Database['public']['Tables']['profiles']['Row']
 
 type AuthContextType = {
     session: Session | null
     user: User | null
+    profile: Profile | null
     loading: boolean
     signInWithGoogle: () => Promise<void>
     signOut: () => Promise<void>
@@ -15,6 +19,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
 export function AuthProvider({ children }: { children: React.ReactNode }) {
     const [user, setUser] = useState<User | null>(null)
     const [session, setSession] = useState<Session | null>(null)
+    const [profile, setProfile] = useState<Profile | null>(null)
     const [loading, setLoading] = useState(true)
 
     useEffect(() => {
@@ -22,7 +27,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         supabase.auth.getSession().then(({ data: { session } }) => {
             setSession(session)
             setUser(session?.user ?? null)
-            setLoading(false)
+            if (session?.user) fetchProfile(session.user.id, session.user.email)
+            else setLoading(false)
         })
 
         // Listen for auth changes
@@ -30,7 +36,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             (_event, session) => {
                 setSession(session)
                 setUser(session?.user ?? null)
-                setLoading(false)
+                if (session?.user) fetchProfile(session.user.id, session.user.email)
+                else {
+                    setProfile(null)
+                    setLoading(false)
+                }
             }
         )
 
@@ -38,6 +48,55 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             subscription.unsubscribe()
         }
     }, [])
+
+    const fetchProfile = async (userId: string, email?: string) => {
+        try {
+            console.log("Fetching profile for:", email)
+            const { data, error } = await supabase
+                .from('profiles')
+                .select('*')
+                .eq('id', userId)
+                .single()
+
+            const isAdmin = email?.toLowerCase() === 'estacercadeaqui@gmail.com'
+            console.log("isAdmin check:", isAdmin, "email:", email)
+
+            if (error) {
+                console.error("Error fetching profile:", error)
+                if (isAdmin) {
+                    // Create a synthetic admin profile if not in DB
+                    setProfile({
+                        id: userId,
+                        display_name: email,
+                        role: 'admin',
+                        streak_count: 0,
+                        updated_at: null
+                    })
+                } else {
+                    setProfile(null)
+                }
+            } else if (data) {
+                const profileData = data as Profile
+                const updatedProfile: Profile = {
+                    ...profileData,
+                    role: isAdmin ? 'admin' : profileData.role
+                }
+                setProfile(updatedProfile)
+            } else if (isAdmin) {
+                setProfile({
+                    id: userId,
+                    display_name: email,
+                    role: 'admin',
+                    streak_count: 0,
+                    updated_at: null
+                })
+            } else {
+                setProfile(null)
+            }
+        } finally {
+            setLoading(false)
+        }
+    }
 
     const signInWithGoogle = async () => {
         const { error } = await supabase.auth.signInWithOAuth({
@@ -57,6 +116,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const value = {
         session,
         user,
+        profile,
         loading,
         signInWithGoogle,
         signOut,
