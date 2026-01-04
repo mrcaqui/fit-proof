@@ -41,9 +41,14 @@ export function Sidebar({ className }: SidebarProps) {
     // Only add admin item if user is admin
     if (profile?.role === 'admin') {
         items.push({
-            title: "Admin",
+            title: "Deadlines",
             icon: Shield,
             href: "/admin/deadlines",
+        })
+        items.push({
+            title: "Submissions",
+            icon: Shield,
+            href: "/admin/submissions",
         })
     }
 
@@ -117,9 +122,14 @@ export function MobileNav() {
 
     if (profile?.role === 'admin') {
         items.push({
-            title: "Admin",
+            title: "Deadlines",
             icon: Shield,
             href: "/admin/deadlines",
+        })
+        items.push({
+            title: "Submissions",
+            icon: Shield,
+            href: "/admin/submissions",
         })
     }
 

@@ -5,6 +5,7 @@ import { AuthProvider } from "./context/AuthContext"
 import { RequireAuth } from "./components/auth/RequireAuth"
 import CalendarPage from "./pages/calendar/CalendarPage"
 import DeadlineManagement from "./pages/admin/DeadlineManagement"
+import SubmissionsPage from "./pages/admin/SubmissionsPage"
 
 function Dashboard() {
     return (
@@ -50,6 +51,7 @@ function App() {
                         <Route path="/upload" element={<UploadPage />} />
                         <Route path="/profile" element={<ProfilePage />} />
                         <Route path="/admin/deadlines" element={<DeadlineManagement />} />
+                        <Route path="/admin/submissions" element={<SubmissionsPage />} />
                     </Route>
                 </Routes>
             </BrowserRouter>
