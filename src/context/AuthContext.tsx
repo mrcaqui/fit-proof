@@ -61,13 +61,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             const isAdmin = email?.toLowerCase() === 'estacercadeaqui@gmail.com'
             console.log("isAdmin check:", isAdmin, "email:", email)
 
-            if (error) {
+            if (error && error.code === 'PGRST116') {
+                // Profile not found - create one in the database
+                console.log("Profile not found, creating new profile...")
+                const newProfile: Profile = {
+                    id: userId,
+                    display_name: email || null,
+                    role: isAdmin ? 'admin' : 'client',
+                    streak_count: 0,
+                    updated_at: null
+                }
+
+                const { error: insertError } = await supabase
+                    .from('profiles')
+                    .insert(newProfile as any)
+
+                if (insertError) {
+                    console.error("Error creating profile:", insertError)
+                    // Still set profile in memory for UI purposes
+                }
+
+                setProfile(newProfile)
+            } else if (error) {
                 console.error("Error fetching profile:", error)
                 if (isAdmin) {
-                    // Create a synthetic admin profile if not in DB
                     setProfile({
                         id: userId,
-                        display_name: email,
+                        display_name: email || null,
                         role: 'admin',
                         streak_count: 0,
                         updated_at: null
@@ -82,14 +102,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     role: isAdmin ? 'admin' : profileData.role
                 }
                 setProfile(updatedProfile)
-            } else if (isAdmin) {
-                setProfile({
-                    id: userId,
-                    display_name: email,
-                    role: 'admin',
-                    streak_count: 0,
-                    updated_at: null
-                })
             } else {
                 setProfile(null)
             }

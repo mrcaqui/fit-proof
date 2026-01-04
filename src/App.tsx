@@ -15,11 +15,16 @@ function Dashboard() {
     )
 }
 
+import { VideoUploader } from "./components/upload/VideoUploader"
+
 function UploadPage() {
     return (
-        <div>
-            <h2 className="text-3xl font-bold tracking-tight">Upload</h2>
-            <p className="text-muted-foreground">Submit your workout videos.</p>
+        <div className="space-y-6">
+            <div>
+                <h2 className="text-3xl font-bold tracking-tight">Upload</h2>
+                <p className="text-muted-foreground">ワークアウト動画を提出します。</p>
+            </div>
+            <VideoUploader />
         </div>
     )
 }
