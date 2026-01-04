@@ -13,7 +13,10 @@ export default defineConfig({
         name: 'FitProof',
         short_name: 'FitProof',
         description: 'Personal Trainer Workout Tracker',
-        theme_color: '#ffffff',
+        theme_color: '#0f172a', // Slate-900 matches dark theme
+        background_color: '#0f172a',
+        display: 'standalone',
+        orientation: 'portrait',
         icons: [
           {
             src: 'pwa-192x192.png',
@@ -23,7 +26,8 @@ export default defineConfig({
           {
             src: 'pwa-512x512.png',
             sizes: '512x512',
-            type: 'image/png'
+            type: 'image/png',
+            purpose: 'any maskable'
           }
         ]
       }
