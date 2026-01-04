@@ -1,4 +1,4 @@
-import { useRef, useMemo } from 'react'
+import { useRef, useMemo, useState } from 'react'
 import FullCalendar from '@fullcalendar/react'
 import dayGridPlugin from '@fullcalendar/daygrid'
 import timeGridPlugin from '@fullcalendar/timegrid'
@@ -7,12 +7,14 @@ import listPlugin from '@fullcalendar/list'
 import { useDeadlines } from '@/hooks/useDeadlines'
 import { useSubmissions } from '@/hooks/useSubmissions'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { format, startOfDay, addDays, isSameDay } from 'date-fns'
+import { format, startOfDay, addDays } from 'date-fns'
+import { UploadModal } from '@/components/upload/UploadModal'
 
 export default function CalendarPage() {
     const calendarRef = useRef<FullCalendar>(null)
     const { deadlines, loading: loadingDeadlines } = useDeadlines()
-    const { submissions, loading: loadingSubmissions } = useSubmissions()
+    const { submissions, loading: loadingSubmissions, refetch } = useSubmissions()
+    const [selectedDate, setSelectedDate] = useState<Date | null>(null)
 
     const events = useMemo(() => {
         const evs: any[] = []
@@ -41,8 +43,8 @@ export default function CalendarPage() {
                     deadlineDate.setHours(hours, minutes, 0, 0)
 
                     // Check if there is a submission for this date
-                    const submission = submissions.find((s) =>
-                        isSameDay(new Date(s.created_at), deadlineDate)
+                    const submission = submissions.find((s: any) =>
+                        s.target_date === format(deadlineDate, 'yyyy-MM-dd')
                     )
 
                     let statusColor = '#94a3b8' // Slate-400 (Default/Not submitted)
@@ -116,14 +118,27 @@ export default function CalendarPage() {
                                 day: '日',
                                 list: 'リスト'
                             }}
+                            dateClick={(info) => {
+                                setSelectedDate(info.date)
+                            }}
                             eventClick={(info) => {
                                 console.log('Event clicked:', info.event.extendedProps)
-                                // Future: Open detail modal
                             }}
                         />
                     </div>
                 </CardContent>
             </Card>
+
+            {selectedDate && (
+                <UploadModal
+                    targetDate={selectedDate}
+                    onClose={() => setSelectedDate(null)}
+                    onSuccess={() => {
+                        refetch()
+                        setSelectedDate(null)
+                    }}
+                />
+            )}
 
             <style>{`
         .fc {

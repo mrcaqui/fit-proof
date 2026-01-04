@@ -51,6 +51,7 @@ create table submissions (
   duration integer, -- For video type (seconds)
   comment_text text, -- For comment type or additional info
   status text check (status in ('success', 'fail', 'excused')) default 'success',
+  target_date date, -- Date the submission is for
   created_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
 
