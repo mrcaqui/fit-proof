@@ -6,6 +6,8 @@ import { RequireAuth } from "./components/auth/RequireAuth"
 import CalendarPage from "./pages/calendar/CalendarPage"
 import DeadlineManagement from "./pages/admin/DeadlineManagement"
 import SubmissionsPage from "./pages/admin/SubmissionsPage"
+import UsersPage from "./pages/admin/UsersPage"
+import { Toaster } from "./components/ui/toaster"
 
 function Dashboard() {
     return (
@@ -51,9 +53,11 @@ function App() {
                         <Route path="/upload" element={<UploadPage />} />
                         <Route path="/profile" element={<ProfilePage />} />
                         <Route path="/admin/deadlines" element={<DeadlineManagement />} />
+                        <Route path="/admin/users" element={<UsersPage />} />
                         <Route path="/admin/submissions" element={<SubmissionsPage />} />
                     </Route>
                 </Routes>
+                <Toaster />
             </BrowserRouter>
         </AuthProvider>
     )

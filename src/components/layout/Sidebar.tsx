@@ -1,5 +1,5 @@
 import { Link, useLocation } from "react-router-dom"
-import { Calendar, Home, Upload, User, LayoutDashboard, LogOut, Shield } from "lucide-react"
+import { Calendar, Home, Upload, User, LayoutDashboard, LogOut, Shield, Users } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -13,7 +13,7 @@ interface SidebarProps extends React.HTMLAttributes<HTMLDivElement> { }
 
 export function Sidebar({ className }: SidebarProps) {
     const location = useLocation()
-    const { signOut, profile } = useAuth()
+    const { signOut, profile, user } = useAuth()
 
     const items = [
         {
@@ -46,6 +46,11 @@ export function Sidebar({ className }: SidebarProps) {
             href: "/admin/deadlines",
         })
         items.push({
+            title: "Users",
+            icon: Users,
+            href: "/admin/users",
+        })
+        items.push({
             title: "Submissions",
             icon: Shield,
             href: "/admin/submissions",
@@ -76,7 +81,13 @@ export function Sidebar({ className }: SidebarProps) {
                     </div>
                 </div>
             </div>
-            <div className="px-3 py-2 mt-auto">
+            <div className="px-3 py-2 mt-auto border-t">
+                <div className="px-4 py-2 mb-2">
+                    <p className="text-sm font-bold leading-none">
+                        {profile?.display_name || user?.email?.split('@')[0]}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-1 truncate">{user?.email}</p>
+                </div>
                 <div className="space-y-1">
                     <Button variant="ghost" className="w-full justify-start text-destructive hover:text-destructive" onClick={() => signOut()}>
                         <LogOut className="mr-2 h-4 w-4" />
@@ -95,7 +106,7 @@ export function Sidebar({ className }: SidebarProps) {
 export function MobileNav() {
     const [open, setOpen] = useState(false)
     const location = useLocation()
-    const { signOut, profile } = useAuth()
+    const { signOut, profile, user } = useAuth()
 
     const items = [
         {
@@ -125,6 +136,11 @@ export function MobileNav() {
             title: "Deadlines",
             icon: Shield,
             href: "/admin/deadlines",
+        })
+        items.push({
+            title: "Users",
+            icon: Users,
+            href: "/admin/users",
         })
         items.push({
             title: "Submissions",
@@ -173,6 +189,12 @@ export function MobileNav() {
                     </div>
                 </ScrollArea>
                 <div className="absolute bottom-4 left-4 right-4 space-y-2">
+                    <div className="px-2 py-2 mb-2 border-b">
+                        <p className="text-sm font-bold leading-none">
+                            {profile?.display_name || user?.email?.split('@')[0]}
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-1 truncate">{user?.email}</p>
+                    </div>
                     <Button variant="ghost" className="w-full justify-start text-destructive hover:text-destructive" onClick={() => {
                         signOut()
                         setOpen(false)

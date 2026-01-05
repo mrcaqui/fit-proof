@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState } from "react"
 import { Session, User } from "@supabase/supabase-js"
 import { supabase } from "@/lib/supabase"
 import { Database } from "@/types/database.types"
+import { toast } from "@/hooks/use-toast"
 
 type Profile = Database['public']['Tables']['profiles']['Row']
 
@@ -12,6 +13,7 @@ type AuthContextType = {
     loading: boolean
     signInWithGoogle: () => Promise<void>
     signOut: () => Promise<void>
+    refreshProfile: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -36,7 +38,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             (_event, session) => {
                 setSession(session)
                 setUser(session?.user ?? null)
-                if (session?.user) fetchProfile(session.user.id, session.user.email)
+                if (session?.user) fetchProfile(session.user.id, session.user.email, session.user.user_metadata)
                 else {
                     setProfile(null)
                     setLoading(false)
@@ -49,25 +51,47 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
     }, [])
 
-    const fetchProfile = async (userId: string, email?: string) => {
+    const fetchProfile = async (userId: string, email?: string, metadata?: any) => {
         try {
             console.log("Fetching profile for:", email)
+
+            // Check authorized_users first
+            const { data: authUser, error: authError } = await supabase
+                .from('authorized_users' as any)
+                .select('role')
+                .eq('email', email)
+                .single()
+
+            if (authError || !authUser) {
+                console.warn("User not authorized:", email)
+                // If not authorized, sign out
+                if (email) {
+                    await signOut()
+                    toast({
+                        title: "ログイン制限",
+                        description: "このメールアドレスは許可されていません。管理者に登録を依頼してください。",
+                        variant: "destructive",
+                    })
+                    return
+                }
+            }
+
             const { data, error } = await supabase
                 .from('profiles')
                 .select('*')
                 .eq('id', userId)
                 .single()
 
-            const isAdmin = email?.toLowerCase() === 'estacercadeaqui@gmail.com'
-            console.log("isAdmin check:", isAdmin, "email:", email)
+            const targetRole = authUser?.role || 'client'
+            const googleName = metadata?.full_name || metadata?.name
 
             if (error && error.code === 'PGRST116') {
                 // Profile not found - create one in the database
                 console.log("Profile not found, creating new profile...")
                 const newProfile: Profile = {
                     id: userId,
-                    display_name: email || null,
-                    role: isAdmin ? 'admin' : 'client',
+                    display_name: googleName || email || null,
+                    role: targetRole,
                     streak_count: 0,
                     updated_at: null
                 }
@@ -78,35 +102,56 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
                 if (insertError) {
                     console.error("Error creating profile:", insertError)
-                    // Still set profile in memory for UI purposes
                 }
 
                 setProfile(newProfile)
             } else if (error) {
                 console.error("Error fetching profile:", error)
-                if (isAdmin) {
-                    setProfile({
-                        id: userId,
-                        display_name: email || null,
-                        role: 'admin',
-                        streak_count: 0,
-                        updated_at: null
-                    })
-                } else {
-                    setProfile(null)
-                }
+                setProfile({
+                    id: userId,
+                    display_name: googleName || email || null,
+                    role: targetRole,
+                    streak_count: 0,
+                    updated_at: null
+                })
             } else if (data) {
                 const profileData = data as Profile
-                const updatedProfile: Profile = {
-                    ...profileData,
-                    role: isAdmin ? 'admin' : profileData.role
+                let updatedData = { ...profileData }
+                let needsUpdate = false
+
+                // Update role if it's different from authorized_users
+                if (profileData.role !== targetRole) {
+                    updatedData.role = targetRole
+                    needsUpdate = true
                 }
-                setProfile(updatedProfile)
+
+                // Update display_name if it's currently null or email, and we have a Google name
+                if (googleName && (!profileData.display_name || profileData.display_name === email)) {
+                    updatedData.display_name = googleName
+                    needsUpdate = true
+                }
+
+                if (needsUpdate) {
+                    await supabase
+                        .from('profiles')
+                        .update(updatedData as any)
+                        .eq('id', userId)
+
+                    setProfile(updatedData)
+                } else {
+                    setProfile(profileData)
+                }
             } else {
                 setProfile(null)
             }
         } finally {
             setLoading(false)
+        }
+    }
+
+    const refreshProfile = async () => {
+        if (user) {
+            await fetchProfile(user.id, user.email, user.user_metadata)
         }
     }
 
@@ -132,6 +177,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         loading,
         signInWithGoogle,
         signOut,
+        refreshProfile,
     }
 
     return (
