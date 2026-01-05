@@ -55,6 +55,26 @@ export interface Database {
                     created_at?: string
                 }
             }
+            submission_items: {
+                Row: {
+                    id: number
+                    client_id: string
+                    name: string
+                    created_at: string
+                }
+                Insert: {
+                    id?: number
+                    client_id: string
+                    name: string
+                    created_at?: string
+                }
+                Update: {
+                    id?: number
+                    client_id?: string
+                    name?: string
+                    created_at?: string
+                }
+            }
             submissions: {
                 Row: {
                     id: number
@@ -66,6 +86,7 @@ export interface Database {
                     comment_text: string | null
                     status: 'success' | 'fail' | 'excused'
                     target_date: string | null
+                    submission_item_id: number | null
                     created_at: string
                 }
                 Insert: {
@@ -78,6 +99,7 @@ export interface Database {
                     comment_text?: string | null
                     status?: 'success' | 'fail' | 'excused'
                     target_date?: string | null
+                    submission_item_id?: number | null
                     created_at?: string
                 }
                 Update: {
@@ -90,6 +112,7 @@ export interface Database {
                     comment_text?: string | null
                     status?: 'success' | 'fail' | 'excused'
                     target_date?: string | null
+                    submission_item_id?: number | null
                     created_at?: string
                 }
             }

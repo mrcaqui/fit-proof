@@ -11,9 +11,10 @@ interface WorkoutListProps {
     onDelete?: (id: number, r2Key: string | null) => Promise<any>
     isAdmin?: boolean
     onPlay?: (key: string) => void
+    submissionItems?: Database['public']['Tables']['submission_items']['Row'][]
 }
 
-export function WorkoutList({ date, submissions, onDelete, isAdmin, onPlay }: WorkoutListProps) {
+export function WorkoutList({ date, submissions, onDelete, isAdmin, onPlay, submissionItems = [] }: WorkoutListProps) {
     const formattedDate = format(date, 'yyyy/MM/dd(eee)', { locale: ja })
 
     return (
@@ -25,16 +26,20 @@ export function WorkoutList({ date, submissions, onDelete, isAdmin, onPlay }: Wo
             </div>
 
             {submissions.length > 0 ? (
-                <div className="grid grid-cols-2 gap-3">
-                    {submissions.map((s) => (
-                        <WorkoutCard
-                            key={s.id}
-                            submission={s}
-                            onDelete={onDelete}
-                            isAdmin={isAdmin}
-                            onPlay={onPlay}
-                        />
-                    ))}
+                <div className="flex flex-col gap-3">
+                    {submissions.map((s) => {
+                        const item = submissionItems.find(i => i.id === s.submission_item_id)
+                        return (
+                            <WorkoutCard
+                                key={s.id}
+                                submission={s}
+                                onDelete={onDelete}
+                                isAdmin={isAdmin}
+                                onPlay={onPlay}
+                                itemName={item?.name}
+                            />
+                        )
+                    })}
                 </div>
             ) : (
                 <div className="py-12 text-center">

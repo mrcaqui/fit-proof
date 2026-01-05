@@ -17,9 +17,10 @@ interface UploadModalProps {
     targetDate: Date | null
     onClose: () => void
     onSuccess?: () => void
+    submissionItemId?: number | null
 }
 
-export function UploadModal({ targetDate, onClose, onSuccess }: UploadModalProps) {
+export function UploadModal({ targetDate, onClose, onSuccess, submissionItemId }: UploadModalProps) {
     const { user } = useAuth()
     const [file, setFile] = useState<File | null>(null)
     const [thumbnail, setThumbnail] = useState<string | null>(null)
@@ -106,6 +107,7 @@ export function UploadModal({ targetDate, onClose, onSuccess }: UploadModalProps
                     thumbnail_url: thumbnail || null,
                     status: 'success' as const,
                     target_date: targetDateStr,
+                    submission_item_id: submissionItemId || null
                 } as any)
 
             if (dbError) {

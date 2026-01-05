@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useSubmissionRules } from '@/hooks/useSubmissionRules'
+import { useSubmissionItems } from '@/hooks/useSubmissionItems'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -64,6 +65,43 @@ export default function SubmissionSettingsPage() {
         fetchClients()
     }, [selectedClientId])
 
+    const { items: submissionItems, refetch: refetchItems } = useSubmissionItems(selectedClientId)
+    const [newItemName, setNewItemName] = useState('')
+
+    const handleAddItem = async () => {
+        if (!selectedClientId || !newItemName.trim()) return
+
+        const { error } = await supabase
+            .from('submission_items')
+            .insert({
+                client_id: selectedClientId,
+                name: newItemName.trim()
+            })
+
+        if (error) {
+            alert('Error adding item: ' + error.message)
+        } else {
+            setNewItemName('')
+            refetchItems()
+        }
+    }
+
+    const handleDeleteItem = async (id: number) => {
+        if (!confirm('この項目を削除してよろしいですか？')) return
+
+        const { error } = await supabase
+            .from('submission_items')
+            .delete()
+            .eq('id', id)
+
+        if (error) {
+            alert('Error deleting item: ' + error.message)
+        } else {
+            refetchItems()
+        }
+    }
+
+    // Existing handlers...
     const handleAddRule = async (type: 'deadline' | 'target_day') => {
         if (!selectedClientId) return
 
@@ -156,6 +194,58 @@ export default function SubmissionSettingsPage() {
             </div>
 
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
+                {/* Submission Items Card */}
+                <div className="space-y-6 md:col-span-1 xl:col-span-2">
+                    <Card className="border-primary/20 shadow-md">
+                        <CardHeader className="bg-primary/5 border-b">
+                            <CardTitle className="flex items-center gap-2 text-primary">
+                                <Plus className="w-5 h-5" /> 投稿項目の設定
+                            </CardTitle>
+                            <CardDescription>
+                                1日に複数の動画投稿を求める場合、ここで項目を追加します。（例：スクワット、ベンチプレスなど）<br />
+                                項目がない場合は、通常の「1日1動画」として扱われます。
+                            </CardDescription>
+                        </CardHeader>
+                        <CardContent className="space-y-6 pt-6">
+                            <div className="flex gap-4">
+                                <Input
+                                    placeholder="項目名 (例: トレーニング動画)"
+                                    value={newItemName}
+                                    onChange={e => setNewItemName(e.target.value)}
+                                    className="max-w-md"
+                                />
+                                <Button onClick={handleAddItem} disabled={!newItemName.trim()}>
+                                    追加
+                                </Button>
+                            </div>
+
+                            <div className="space-y-2">
+                                {submissionItems.length === 0 ? (
+                                    <div className="text-sm text-muted-foreground italic p-4 border border-dashed rounded bg-muted/20 text-center">
+                                        設定された項目はありません（デフォルト設定）
+                                    </div>
+                                ) : (
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                                        {submissionItems.map(item => (
+                                            <div key={item.id} className="flex items-center justify-between p-3 rounded-lg border bg-card shadow-sm">
+                                                <span className="font-medium truncate">{item.name}</span>
+                                                <Button
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                                                    onClick={() => handleDeleteItem(item.id)}
+                                                >
+                                                    <Trash2 className="w-4 h-4" />
+                                                </Button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        </CardContent>
+                    </Card>
+                </div>
+
                 {/* Deadline Card */}
                 <div className="space-y-6">
                     <Card className="border-primary/20 shadow-md">

@@ -19,6 +19,8 @@ import {
 import { VideoPlayerModal } from '@/components/admin/VideoPlayerModal'
 import { getR2PublicUrl } from '@/lib/r2'
 import { useSubmissionRules } from '@/hooks/useSubmissionRules'
+import { useSubmissionItems } from '@/hooks/useSubmissionItems'
+import { ItemSelectionModal } from '@/components/calendar/ItemSelectionModal'
 
 export default function CalendarPage() {
     const { profile, user } = useAuth()
@@ -36,10 +38,13 @@ export default function CalendarPage() {
     // Determine whose rules to fetch: selected user for admin, or self for client
     const targetUserId = isAdmin ? (selectedClientId || user?.id) : user?.id
     const { getRuleForDate, loading: _rulesLoading } = useSubmissionRules(targetUserId)
+    const { items: submissionItems } = useSubmissionItems(targetUserId)
 
     const { workouts, loading, refetch, deleteWorkout } = useWorkoutHistory(selectedClientId)
     const [selectedDate, setSelectedDate] = useState<Date>(new Date())
     const [isUploadModalOpen, setIsUploadModalOpen] = useState(false)
+    const [isItemSelectionOpen, setIsItemSelectionOpen] = useState(false)
+    const [selectedSubmissionItemId, setSelectedSubmissionItemId] = useState<number | null>(null)
 
     // Persist selection for admins
     useEffect(() => {
@@ -82,23 +87,35 @@ export default function CalendarPage() {
 
     // Generate mapping of dates to their status indicators
     const dayStatusMap = useMemo(() => {
-        const map: Record<string, { hasSubmission: boolean; hasSuccess: boolean; hasFail: boolean; hasComment: boolean }> = {}
+        const map: Record<string, { hasSubmission: boolean; hasSuccess: boolean; hasFail: boolean; hasComment: boolean; submittedCount: number; totalItems: number }> = {}
+
+        const totalItemsCount = submissionItems.length > 0 ? submissionItems.length : 1
 
         workouts.forEach(s => {
             if (!s.target_date) return
             const d = parseISO(s.target_date)
             const key = format(d, "yyyy-MM-dd")
-            if (!map[key]) map[key] = { hasSubmission: false, hasSuccess: false, hasFail: false, hasComment: false }
+            if (!map[key]) map[key] = { hasSubmission: false, hasSuccess: false, hasFail: false, hasComment: false, submittedCount: 0, totalItems: totalItemsCount }
 
             map[key].hasSubmission = true
             map[key].hasSuccess ||= s.status === "success"
             map[key].hasFail ||= s.status === "fail"
-            // TODO: Implementation for hasComment when metadata is available
-            map[key].hasComment ||= false
+            map[key].hasComment ||= false // TODO
+            map[key].submittedCount += 1
         })
 
         return map
-    }, [workouts])
+    }, [workouts, submissionItems])
+
+    const handlePlusClick = (date: Date) => {
+        setSelectedDate(date)
+        if (submissionItems.length > 0) {
+            setIsItemSelectionOpen(true)
+        } else {
+            setSelectedSubmissionItemId(null)
+            setIsUploadModalOpen(true)
+        }
+    }
 
     if (loading && workouts.length === 0) {
         return <div className="p-8 text-center text-muted-foreground animate-pulse">データを読み込み中...</div>
@@ -167,40 +184,45 @@ export default function CalendarPage() {
                                 const targetDayRule = getRuleForDate(date, 'target_day')
                                 const isTargetDay = targetDayRule === null || targetDayRule === 'true'
 
-                                const showPlus = !st?.hasSubmission && !selectedClientId && isTargetDay
+                                const submittedCount = st?.submittedCount || 0
+                                const totalItems = submissionItems.length > 0 ? submissionItems.length : 1
+                                const isComplete = submittedCount >= totalItems
+
+                                // Show Plus if: (No submission OR (Current submissions < Required submissions)) AND (No client selected by Admin OR is User) AND isTargetDay
+                                const showPlus = (!isComplete) && !selectedClientId && isTargetDay
 
                                 return (
-                                    <div className="relative flex flex-col items-center justify-start w-full min-h-[90px] sm:min-h-[100px] pt-1.5 pb-1 transition-colors hover:bg-muted/10">
+                                    <div className="relative flex flex-col items-center justify-start w-full min-h-[95px] sm:min-h-[105px] pt-1 pb-1 transition-colors hover:bg-muted/10 font-sans">
                                         {/* Date Number */}
                                         <div
-                                            className={`w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center rounded-full text-base transition-all duration-200 z-10 ${isSelected
-                                                    ? 'bg-primary text-primary-foreground font-bold shadow-md'
-                                                    : isToday ? 'bg-accent text-accent-foreground font-bold' : 'text-foreground font-medium'
+                                            className={`w-6 h-6 sm:w-7 sm:h-7 flex items-center justify-center rounded-full text-sm sm:text-base transition-all duration-200 z-10 mb-1 ${isSelected
+                                                ? 'bg-primary text-primary-foreground font-bold shadow-md'
+                                                : isToday ? 'bg-accent text-accent-foreground font-bold' : 'text-foreground font-medium'
                                                 }`}
                                         >
                                             {date.getDate()}
                                         </div>
 
-                                        {/* Middle Content Area: Plus Button and Indicators */}
-                                        {/* Positioned centered between the date number and the bottom deadline */}
-                                        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none pt-2">
-                                            {/* Status Indicators */}
-                                            <div className="flex flex-wrap justify-center gap-1 mb-1.5 min-h-[6px] w-full px-0.5">
-                                                {st?.hasSuccess && <div className="w-1.5 h-1.5 rounded-full bg-green-500 shadow-sm" />}
-                                                {st?.hasFail && <div className="w-1.5 h-1.5 rounded-full bg-red-500 shadow-sm" />}
-                                                {st?.hasComment && <div className="w-1.5 h-1.5 rounded-full bg-amber-400 shadow-sm" />}
-                                            </div>
+                                        {/* Middle Content: Status & Action (Packed closer to date) */}
+                                        <div className="flex flex-row items-center justify-center gap-1 w-full z-20 min-h-[28px]">
+                                            {/* Status Indicators - Hide if Plus button is visible to prevent clutter */}
+                                            {!showPlus && (st?.hasFail || (isComplete && st?.hasSubmission) || (!st?.hasFail && !isComplete && st?.hasSubmission)) && (
+                                                <div className="flex flex-wrap justify-center gap-0.5">
+                                                    {st?.hasFail && <div className="w-1.5 h-1.5 rounded-full bg-red-500 shadow-sm" />}
+                                                    {!st?.hasFail && isComplete && st?.hasSubmission && <div className="w-1.5 h-1.5 rounded-full bg-green-500 shadow-sm" />}
+                                                    {!st?.hasFail && !isComplete && st?.hasSubmission && <div className="w-1.5 h-1.5 rounded-full bg-yellow-400 shadow-sm" />}
+                                                </div>
+                                            )}
 
-                                            {/* Upload Plus Button */}
+                                            {/* Plus Button */}
                                             {showPlus && (
                                                 <button
                                                     type="button"
-                                                    className="pointer-events-auto w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-muted/90 text-muted-foreground flex items-center justify-center hover:bg-primary hover:text-primary-foreground transition-all border border-background shadow-xs hover:scale-110 active:scale-95"
+                                                    className="w-7 h-7 rounded-full bg-muted/90 text-muted-foreground flex items-center justify-center hover:bg-primary hover:text-primary-foreground transition-all border border-background shadow-xs hover:scale-110 active:scale-95"
                                                     onClick={(e) => {
                                                         e.preventDefault()
                                                         e.stopPropagation()
-                                                        setSelectedDate(date)
-                                                        setIsUploadModalOpen(true)
+                                                        handlePlusClick(date)
                                                     }}
                                                 >
                                                     <Plus className="w-4 h-4" />
@@ -208,15 +230,23 @@ export default function CalendarPage() {
                                             )}
                                         </div>
 
-                                        {/* Bottom Content Area: Deadline Text (Only for target days) */}
-                                        {deadlineRule && isTargetDay && (
-                                            <div className="mt-auto w-full px-1 py-1 bg-muted/5 border-t border-muted/10">
-                                                <div className="text-[8px] sm:text-[9px] text-muted-foreground flex items-center justify-center gap-0.5 opacity-80 overflow-hidden whitespace-nowrap">
-                                                    <Clock className="w-2 h-2 shrink-0" />
+                                        {/* Bottom Content: Progress & Deadline (Pushed to bottom only if space permits, otherwise flows) */}
+                                        <div className="mt-auto w-full px-0.5 flex flex-col gap-0.5 items-center justify-end">
+                                            {/* Progress Indicator */}
+                                            {submissionItems.length > 0 && isTargetDay && (
+                                                <div className={`text-[9px] font-bold flex items-center justify-center gap-0.5 leading-none ${isComplete ? 'text-green-600' : 'text-orange-500'}`}>
+                                                    <span>{submittedCount}/{totalItems}</span>
+                                                </div>
+                                            )}
+
+                                            {/* Deadline */}
+                                            {deadlineRule && isTargetDay && (
+                                                <div className="text-[9px] text-muted-foreground flex items-center justify-center gap-0.5 opacity-80 whitespace-nowrap leading-none pb-0.5">
+                                                    <Clock className="w-2.5 h-2.5 shrink-0" />
                                                     <span>~{deadlineRule}</span>
                                                 </div>
-                                            </div>
-                                        )}
+                                            )}
+                                        </div>
                                     </div>
                                 )
                             },
@@ -231,11 +261,12 @@ export default function CalendarPage() {
                 onDelete={deleteWorkout}
                 isAdmin={isAdmin}
                 onPlay={(key) => setSelectedVideo(getR2PublicUrl(key))}
+                submissionItems={submissionItems}
             />
 
             {!selectedClientId && (
                 <Button
-                    onClick={() => setIsUploadModalOpen(true)}
+                    onClick={() => handlePlusClick(new Date())}
                     className="fixed bottom-6 right-6 w-14 h-14 rounded-full shadow-2xl bg-primary hover:bg-primary/90 text-primary-foreground z-[100] p-0 flex items-center justify-center border-2 border-background"
                 >
                     <Plus className="w-8 h-8" />
@@ -244,9 +275,26 @@ export default function CalendarPage() {
 
             {isUploadModalOpen && (
                 <UploadModal
-                    onClose={() => setIsUploadModalOpen(false)}
+                    onClose={() => {
+                        setIsUploadModalOpen(false)
+                        setSelectedSubmissionItemId(null)
+                    }}
                     onSuccess={() => refetch(true)}
                     targetDate={selectedDate}
+                    submissionItemId={selectedSubmissionItemId}
+                />
+            )}
+
+            {isItemSelectionOpen && (
+                <ItemSelectionModal
+                    items={submissionItems}
+                    completedItemIds={selectedDateSubmissions.map(s => s.submission_item_id).filter(Boolean) as number[]}
+                    onClose={() => setIsItemSelectionOpen(false)}
+                    onSelect={(item) => {
+                        setSelectedSubmissionItemId(item.id)
+                        setIsItemSelectionOpen(false)
+                        setIsUploadModalOpen(true)
+                    }}
                 />
             )}
 
