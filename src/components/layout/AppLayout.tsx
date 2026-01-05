@@ -1,8 +1,12 @@
 import { Outlet } from "react-router-dom"
 import { MobileNav, Sidebar } from "./Sidebar"
 import { ThemeProvider } from "../theme-provider"
+import { useState } from "react"
+import { cn } from "@/lib/utils"
 
 export default function AppLayout() {
+    const [isCollapsed, setIsCollapsed] = useState(false)
+
     return (
         <ThemeProvider defaultTheme="system" storageKey="fit-proof-theme">
             <div className="flex min-h-screen flex-col">
@@ -12,9 +16,12 @@ export default function AppLayout() {
                     </div>
                 </header>
 
-                <div className="flex-1 md:grid md:grid-cols-[220px_1fr] lg:grid-cols-[280px_1fr]">
+                <div className={cn(
+                    "flex-1 md:grid transition-all duration-300",
+                    isCollapsed ? "md:grid-cols-[64px_1fr]" : "md:grid-cols-[256px_1fr]"
+                )}>
                     <aside className="hidden border-r bg-muted/40 md:block min-h-screen relative">
-                        <Sidebar />
+                        <Sidebar isCollapsed={isCollapsed} setIsCollapsed={setIsCollapsed} />
                     </aside>
 
                     <main className="flex w-full flex-col overflow-hidden">
