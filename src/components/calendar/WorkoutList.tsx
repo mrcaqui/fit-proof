@@ -9,9 +9,11 @@ interface WorkoutListProps {
     date: Date
     submissions: Submission[]
     onDelete?: (id: number, r2Key: string | null) => Promise<any>
+    isAdmin?: boolean
+    onPlay?: (key: string) => void
 }
 
-export function WorkoutList({ date, submissions, onDelete }: WorkoutListProps) {
+export function WorkoutList({ date, submissions, onDelete, isAdmin, onPlay }: WorkoutListProps) {
     const formattedDate = format(date, 'EEE, MMM d', { locale: ja }).toUpperCase()
 
     return (
@@ -29,6 +31,8 @@ export function WorkoutList({ date, submissions, onDelete }: WorkoutListProps) {
                             key={s.id}
                             submission={s}
                             onDelete={onDelete}
+                            isAdmin={isAdmin}
+                            onPlay={onPlay}
                         />
                     ))}
                 </div>

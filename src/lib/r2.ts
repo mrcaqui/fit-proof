@@ -18,3 +18,8 @@ export async function deleteR2Object(key: string) {
     })
     return await r2Client.send(command)
 }
+
+export function getR2PublicUrl(key: string) {
+    const endpoint = import.meta.env.VITE_R2_PUBLIC_URL || import.meta.env.VITE_R2_ENDPOINT
+    return `${endpoint}/${key}`
+}

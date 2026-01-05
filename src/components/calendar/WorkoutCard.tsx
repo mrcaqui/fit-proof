@@ -10,9 +10,11 @@ type Submission = Database['public']['Tables']['submissions']['Row']
 interface WorkoutCardProps {
     submission: Submission
     onDelete?: (id: number, r2Key: string | null) => Promise<any>
+    isAdmin?: boolean
+    onPlay?: (key: string) => void
 }
 
-export function WorkoutCard({ submission, onDelete }: WorkoutCardProps) {
+export function WorkoutCard({ submission, onDelete, isAdmin, onPlay }: WorkoutCardProps) {
     const [isDeleting, setIsDeleting] = useState(false)
 
     const timeStr = submission.created_at
@@ -42,7 +44,7 @@ export function WorkoutCard({ submission, onDelete }: WorkoutCardProps) {
             <CardContent className="p-0">
                 <div className="flex flex-col relative">
                     {/* Delete Button Overlay */}
-                    {onDelete && (
+                    {onDelete && !isAdmin && (
                         <Button
                             variant="destructive"
                             size="icon"
@@ -59,7 +61,10 @@ export function WorkoutCard({ submission, onDelete }: WorkoutCardProps) {
                     )}
 
                     {/* Thumbnail Area */}
-                    <div className="relative aspect-video bg-muted group cursor-pointer">
+                    <div
+                        className="relative aspect-video bg-muted group cursor-pointer"
+                        onClick={() => submission.r2_key && onPlay?.(submission.r2_key)}
+                    >
                         {submission.thumbnail_url ? (
                             <img
                                 src={submission.thumbnail_url}
@@ -86,17 +91,33 @@ export function WorkoutCard({ submission, onDelete }: WorkoutCardProps) {
                     </div>
 
                     {/* Info Area */}
-                    <div className="p-3 flex items-center justify-between">
-                        <div className="text-sm font-medium text-muted-foreground flex items-center gap-1.5">
-                            {timeStr}
-                        </div>
+                    <div className="p-3">
+                        <div className="flex items-center justify-between mb-2">
+                            <div className="text-sm font-medium text-muted-foreground flex items-center gap-1.5">
+                                {timeStr}
+                            </div>
 
-                        <div className="flex items-center gap-3">
-                            {/* Dummy Status Icons to match UI image */}
-                            <div className="flex items-center gap-1 text-muted-foreground">
-                                <CheckCircle2 className="w-4 h-4 text-green-500" />
+                            <div className="flex items-center gap-3">
+                                <div className="flex items-center gap-1 text-muted-foreground">
+                                    <CheckCircle2 className="w-4 h-4 text-green-500" />
+                                </div>
                             </div>
                         </div>
+
+                        {/* Admin Action Buttons */}
+                        {isAdmin && (
+                            <div className="flex flex-wrap gap-2 pt-2 border-t mt-2">
+                                <Button size="sm" variant="outline" className="h-7 px-2 text-[11px] bg-green-50 text-green-700 border-green-200 hover:bg-green-100">
+                                    承認
+                                </Button>
+                                <Button size="sm" variant="outline" className="h-7 px-2 text-[11px] bg-red-50 text-red-700 border-red-200 hover:bg-red-100">
+                                    却下
+                                </Button>
+                                <Button size="sm" variant="outline" className="h-7 px-2 text-[11px] bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100">
+                                    コメント
+                                </Button>
+                            </div>
+                        )}
                     </div>
                 </div>
             </CardContent>

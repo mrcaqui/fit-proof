@@ -7,7 +7,7 @@ import { format } from 'date-fns'
 import { ja } from 'date-fns/locale'
 import { Play, User, Clock, CheckCircle, XCircle, AlertCircle, Trash2, Loader2 } from 'lucide-react'
 import { VideoPlayerModal } from '@/components/admin/VideoPlayerModal'
-import { deleteR2Object } from '@/lib/r2'
+import { deleteR2Object, getR2PublicUrl } from '@/lib/r2'
 
 type Submission = {
     id: number
@@ -101,11 +101,6 @@ export default function SubmissionsPage() {
         }
     }
 
-    const getVideoUrl = (r2Key: string) => {
-        // Cloudflare R2 public URL format
-        const endpoint = import.meta.env.VITE_R2_PUBLIC_URL || import.meta.env.VITE_R2_ENDPOINT
-        return `${endpoint}/${r2Key}`
-    }
 
     if (profile?.role !== 'admin') {
         return (
@@ -152,7 +147,7 @@ export default function SubmissionsPage() {
                                         size="icon"
                                         variant="secondary"
                                         className="absolute inset-0 m-auto w-12 h-12 rounded-full opacity-80 hover:opacity-100"
-                                        onClick={() => setSelectedVideo(getVideoUrl(submission.r2_key!))}
+                                        onClick={() => setSelectedVideo(getR2PublicUrl(submission.r2_key!))}
                                     >
                                         <Play className="h-6 w-6" />
                                     </Button>
