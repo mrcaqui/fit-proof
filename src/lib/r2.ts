@@ -1,4 +1,4 @@
-import { S3Client } from "@aws-sdk/client-s3"
+import { S3Client, DeleteObjectCommand } from "@aws-sdk/client-s3"
 
 export const r2Client = new S3Client({
     region: "auto",
@@ -10,3 +10,11 @@ export const r2Client = new S3Client({
 })
 
 export const R2_BUCKET_NAME = import.meta.env.VITE_R2_BUCKET_NAME as string
+
+export async function deleteR2Object(key: string) {
+    const command = new DeleteObjectCommand({
+        Bucket: R2_BUCKET_NAME,
+        Key: key,
+    })
+    return await r2Client.send(command)
+}

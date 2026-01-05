@@ -8,9 +8,10 @@ type Submission = Database['public']['Tables']['submissions']['Row']
 interface WorkoutListProps {
     date: Date
     submissions: Submission[]
+    onDelete?: (id: number, r2Key: string | null) => Promise<any>
 }
 
-export function WorkoutList({ date, submissions }: WorkoutListProps) {
+export function WorkoutList({ date, submissions, onDelete }: WorkoutListProps) {
     const formattedDate = format(date, 'EEE, MMM d', { locale: ja }).toUpperCase()
 
     return (
@@ -24,7 +25,11 @@ export function WorkoutList({ date, submissions }: WorkoutListProps) {
             {submissions.length > 0 ? (
                 <div className="grid grid-cols-2 gap-3">
                     {submissions.map((s) => (
-                        <WorkoutCard key={s.id} submission={s} />
+                        <WorkoutCard
+                            key={s.id}
+                            submission={s}
+                            onDelete={onDelete}
+                        />
                     ))}
                 </div>
             ) : (

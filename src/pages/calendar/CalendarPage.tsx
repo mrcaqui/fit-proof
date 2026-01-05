@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 
 export default function CalendarPage() {
-    const { submissions, loading, refetch } = useSubmissions()
+    const { submissions, loading, refetch, deleteSubmission } = useSubmissions()
     const [selectedDate, setSelectedDate] = useState<Date>(new Date())
     const [isUploadOpen, setIsUploadOpen] = useState(false)
 
@@ -129,7 +129,11 @@ export default function CalendarPage() {
                 </CardContent>
             </Card>
 
-            <WorkoutList date={selectedDate} submissions={selectedSubmissions} />
+            <WorkoutList
+                date={selectedDate}
+                submissions={selectedSubmissions}
+                onDelete={deleteSubmission}
+            />
 
             <Button
                 onClick={() => setIsUploadOpen(true)}

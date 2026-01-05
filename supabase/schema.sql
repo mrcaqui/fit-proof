@@ -65,3 +65,15 @@ create policy "Users can insert their own submissions." on submissions
 
 create policy "Users can update their own submissions." on submissions
   for update using (auth.uid() = user_id);
+
+create policy "Users can delete their own submissions." on submissions
+  for delete using (auth.uid() = user_id);
+
+create policy "Admins can delete any submission." on submissions
+  for delete using (
+    exists (
+      select 1 from profiles
+      where profiles.id = auth.uid()
+      and profiles.role = 'admin'
+    )
+  );

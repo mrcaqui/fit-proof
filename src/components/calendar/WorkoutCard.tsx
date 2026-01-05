@@ -1,23 +1,63 @@
+import { useState } from 'react'
 import { format, parseISO } from 'date-fns'
-import { Play, CheckCircle2 } from 'lucide-react'
+import { Play, CheckCircle2, Trash2, Loader2 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Database } from '@/types/database.types'
+import { Button } from '@/components/ui/button'
 
 type Submission = Database['public']['Tables']['submissions']['Row']
 
 interface WorkoutCardProps {
     submission: Submission
+    onDelete?: (id: number, r2Key: string | null) => Promise<any>
 }
 
-export function WorkoutCard({ submission }: WorkoutCardProps) {
+export function WorkoutCard({ submission, onDelete }: WorkoutCardProps) {
+    const [isDeleting, setIsDeleting] = useState(false)
+
     const timeStr = submission.created_at
         ? format(parseISO(submission.created_at), 'HH:mm')
         : '--:--'
 
+    const handleDelete = async (e: React.MouseEvent) => {
+        e.preventDefault()
+        e.stopPropagation()
+
+        if (!onDelete) return
+
+        if (!window.confirm('この動画を削除してもよろしいですか？')) {
+            return
+        }
+
+        setIsDeleting(true)
+        try {
+            await onDelete(submission.id, submission.r2_key)
+        } finally {
+            setIsDeleting(false)
+        }
+    }
+
     return (
-        <Card className="overflow-hidden border-none shadow-sm bg-card hover:bg-accent/50 transition-colors">
+        <Card className="overflow-hidden border-none shadow-sm bg-card hover:bg-accent/50 transition-colors group/card">
             <CardContent className="p-0">
-                <div className="flex flex-col">
+                <div className="flex flex-col relative">
+                    {/* Delete Button Overlay */}
+                    {onDelete && (
+                        <Button
+                            variant="destructive"
+                            size="icon"
+                            className="absolute top-2 right-2 z-30 h-8 w-8 opacity-0 group-hover/card:opacity-100 transition-opacity"
+                            onClick={handleDelete}
+                            disabled={isDeleting}
+                        >
+                            {isDeleting ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                                <Trash2 className="h-4 w-4" />
+                            )}
+                        </Button>
+                    )}
+
                     {/* Thumbnail Area */}
                     <div className="relative aspect-video bg-muted group cursor-pointer">
                         {submission.thumbnail_url ? (

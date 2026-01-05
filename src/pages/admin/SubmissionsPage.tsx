@@ -5,8 +5,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { format } from 'date-fns'
 import { ja } from 'date-fns/locale'
-import { Play, User, Clock, CheckCircle, XCircle, AlertCircle } from 'lucide-react'
+import { Play, User, Clock, CheckCircle, XCircle, AlertCircle, Trash2, Loader2 } from 'lucide-react'
 import { VideoPlayerModal } from '@/components/admin/VideoPlayerModal'
+import { deleteR2Object } from '@/lib/r2'
 
 type Submission = {
     id: number
@@ -27,30 +28,65 @@ export default function SubmissionsPage() {
     const { profile } = useAuth()
     const [submissions, setSubmissions] = useState<Submission[]>([])
     const [loading, setLoading] = useState(true)
+    const [deletingIds, setDeletingIds] = useState<Set<number>>(new Set())
     const [selectedVideo, setSelectedVideo] = useState<string | null>(null)
+
+    const fetchSubmissions = async () => {
+        setLoading(true)
+        const { data, error } = await supabase
+            .from('submissions')
+            .select(`
+                *,
+                profiles (display_name)
+            `)
+            .order('created_at', { ascending: false })
+
+        if (error) {
+            console.error('Error fetching submissions:', error)
+        } else {
+            setSubmissions(data as Submission[])
+        }
+        setLoading(false)
+    }
 
     useEffect(() => {
         if (profile?.role !== 'admin') return
-
-        const fetchSubmissions = async () => {
-            const { data, error } = await supabase
-                .from('submissions')
-                .select(`
-                    *,
-                    profiles (display_name)
-                `)
-                .order('created_at', { ascending: false })
-
-            if (error) {
-                console.error('Error fetching submissions:', error)
-            } else {
-                setSubmissions(data as Submission[])
-            }
-            setLoading(false)
-        }
-
         fetchSubmissions()
     }, [profile])
+
+    const handleDelete = async (id: number, r2Key: string | null) => {
+        if (!window.confirm('この提出を削除してもよろしいですか？（動画ファイルも削除されます）')) {
+            return
+        }
+
+        setDeletingIds(prev => new Set(prev).add(id))
+        try {
+            // 1. Delete from R2 if key exists
+            if (r2Key) {
+                await deleteR2Object(r2Key)
+            }
+
+            // 2. Delete from Supabase
+            const { error: dbError } = await supabase
+                .from('submissions')
+                .delete()
+                .eq('id', id)
+
+            if (dbError) throw dbError
+
+            // 3. Update local state
+            setSubmissions(prev => prev.filter(s => s.id !== id))
+        } catch (err) {
+            console.error('Delete failed:', err)
+            alert('削除に失敗しました。')
+        } finally {
+            setDeletingIds(prev => {
+                const next = new Set(prev)
+                next.delete(id)
+                return next
+            })
+        }
+    }
 
     const getStatusIcon = (status: string) => {
         switch (status) {
@@ -97,7 +133,7 @@ export default function SubmissionsPage() {
             ) : (
                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                     {submissions.map((submission) => (
-                        <Card key={submission.id} className="overflow-hidden">
+                        <Card key={submission.id} className="overflow-hidden group">
                             {/* Thumbnail */}
                             <div className="relative aspect-video bg-muted">
                                 {submission.thumbnail_url ? (
@@ -121,6 +157,21 @@ export default function SubmissionsPage() {
                                         <Play className="h-6 w-6" />
                                     </Button>
                                 )}
+
+                                {/* Delete Button Admin Overlay */}
+                                <Button
+                                    variant="destructive"
+                                    size="icon"
+                                    className="absolute top-2 right-2 h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
+                                    onClick={() => handleDelete(submission.id, submission.r2_key)}
+                                    disabled={deletingIds.has(submission.id)}
+                                >
+                                    {deletingIds.has(submission.id) ? (
+                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                    ) : (
+                                        <Trash2 className="h-4 w-4" />
+                                    )}
+                                </Button>
                             </div>
 
                             <CardHeader className="pb-2">
