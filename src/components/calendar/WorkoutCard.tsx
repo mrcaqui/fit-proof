@@ -48,7 +48,7 @@ export function WorkoutCard({ submission, onDelete, isAdmin, onPlay }: WorkoutCa
                         <Button
                             variant="destructive"
                             size="icon"
-                            className="absolute top-2 right-2 z-30 h-8 w-8 opacity-0 group-hover/card:opacity-100 transition-opacity"
+                            className="absolute top-2 right-2 z-30 h-8 w-8 opacity-100 sm:opacity-0 sm:group-hover/card:opacity-100 transition-opacity"
                             onClick={handleDelete}
                             disabled={isDeleting}
                         >
@@ -78,7 +78,7 @@ export function WorkoutCard({ submission, onDelete, isAdmin, onPlay }: WorkoutCa
                         )}
 
                         {/* Play button overlay */}
-                        <div className="absolute inset-0 flex items-center justify-center bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <div className="absolute inset-0 flex items-center justify-center bg-black/20 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
                             <div className="w-12 h-12 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center">
                                 <Play className="w-6 h-6 text-white fill-white" />
                             </div>

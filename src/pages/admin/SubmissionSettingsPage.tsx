@@ -235,9 +235,9 @@ export default function SubmissionSettingsPage() {
 
                 {/* Target Day Card */}
                 <div className="space-y-6">
-                    <Card className="border-secondary/20 shadow-md">
-                        <CardHeader className="bg-secondary/5 border-b">
-                            <CardTitle className="flex items-center gap-2 text-secondary-foreground">
+                    <Card className="border-primary/20 shadow-md">
+                        <CardHeader className="bg-primary/5 border-b">
+                            <CardTitle className="flex items-center gap-2 text-primary">
                                 <CalendarIcon className="w-5 h-5" /> 投稿対象日の設定
                             </CardTitle>
                             <CardDescription>
@@ -278,12 +278,12 @@ export default function SubmissionSettingsPage() {
                                                 <Button
                                                     key={d.value}
                                                     type="button"
-                                                    variant={t_days.includes(d.value) ? "secondary" : "outline"}
+                                                    variant={t_days.includes(d.value) ? "default" : "outline"}
                                                     size="sm"
                                                     className={cn(
                                                         "w-10 h-10 p-0 rounded-full transition-all duration-200 border-2",
                                                         t_days.includes(d.value)
-                                                            ? "bg-secondary text-secondary-foreground shadow-md scale-105 border-secondary ring-2 ring-secondary/20"
+                                                            ? "shadow-md scale-105 border-primary ring-2 ring-primary/20"
                                                             : "border-transparent bg-muted/20"
                                                     )}
                                                     onClick={() => toggleDay(d.value, 'target_day')}
@@ -302,7 +302,7 @@ export default function SubmissionSettingsPage() {
                                     </div>
                                 )}
 
-                                <Button variant="secondary" className="w-full" onClick={() => handleAddRule('target_day')}>
+                                <Button className="w-full" onClick={() => handleAddRule('target_day')}>
                                     <Plus className="w-4 h-4 mr-2" /> 対象設定ルールを追加
                                 </Button>
                             </div>
@@ -365,7 +365,7 @@ function RuleList({ type, rules, onDelete }: { type: 'deadline' | 'target_day', 
                     <Button
                         variant="ghost"
                         size="icon"
-                        className="h-8 w-8 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
+                        className="h-8 w-8 text-muted-foreground hover:text-destructive opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity"
                         onClick={() => onDelete(rule.id)}
                     >
                         <Trash2 className="w-4 h-4" />
