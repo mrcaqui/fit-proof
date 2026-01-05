@@ -93,6 +93,38 @@ export interface Database {
                     created_at?: string
                 }
             }
+            submission_rules: {
+                Row: {
+                    id: number
+                    client_id: string
+                    rule_type: 'deadline' | 'target_day'
+                    scope: 'monthly' | 'weekly' | 'daily'
+                    day_of_week: number | null
+                    specific_date: string | null
+                    value: string | null
+                    created_at: string
+                }
+                Insert: {
+                    id?: number
+                    client_id: string
+                    rule_type: 'deadline' | 'target_day'
+                    scope: 'monthly' | 'weekly' | 'daily'
+                    day_of_week?: number | null
+                    specific_date?: string | null
+                    value?: string | null
+                    created_at?: string
+                }
+                Update: {
+                    id?: number
+                    client_id?: string
+                    rule_type?: 'deadline' | 'target_day'
+                    scope?: 'monthly' | 'weekly' | 'daily'
+                    day_of_week?: number | null
+                    specific_date?: string | null
+                    value?: string | null
+                    created_at?: string
+                }
+            }
         }
         Views: {
             [_ in never]: never

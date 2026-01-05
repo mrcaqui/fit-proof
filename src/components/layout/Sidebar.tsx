@@ -1,5 +1,5 @@
 import { Link, useLocation } from "react-router-dom"
-import { Calendar, LayoutDashboard, LogOut, Shield, Users, Menu, ChevronLeft, ChevronRight } from "lucide-react"
+import { Calendar, LogOut, Shield, Users, Menu, ChevronLeft, ChevronRight } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -26,12 +26,11 @@ export function Sidebar({ className, isCollapsed, setIsCollapsed }: SidebarProps
         },
     ]
 
-    // Only add admin items if user is admin
     if (profile?.role === 'admin') {
         items.push({
-            title: "Deadlines",
+            title: "提出設定",
             icon: Shield,
-            href: "/admin/deadlines",
+            href: "/admin/submission-settings",
         })
         items.push({
             title: "Users",
@@ -136,9 +135,9 @@ export function MobileNav() {
 
     if (profile?.role === 'admin') {
         items.push({
-            title: "Deadlines",
+            title: "提出設定",
             icon: Shield,
-            href: "/admin/deadlines",
+            href: "/admin/submission-settings",
         })
         items.push({
             title: "Users",
