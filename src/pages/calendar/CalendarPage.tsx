@@ -100,7 +100,7 @@ export default function CalendarPage() {
     }
 
     return (
-        <div className="space-y-6 container mx-auto max-w-4xl pb-20 pt-4 px-2">
+        <div className="space-y-6 container mx-auto max-w-4xl pb-20 pt-4 px-0 sm:px-2">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div className="flex items-center gap-4">
                     <h1 className="text-2xl font-bold tracking-tight">Calendar</h1>
@@ -132,14 +132,14 @@ export default function CalendarPage() {
                 <CardHeader className="py-2 border-b bg-muted/30">
                     <CardTitle className="text-sm font-medium opacity-70">Workout History</CardTitle>
                 </CardHeader>
-                <CardContent className="p-2">
+                <CardContent className="p-0 sm:p-2">
                     <Calendar
                         mode="single"
                         selected={selectedDate}
                         onSelect={(d) => d && setSelectedDate(d)}
                         month={selectedDate}
                         onMonthChange={(m) => setSelectedDate(m)}
-                        className="w-full"
+                        className="w-full p-0 sm:p-3"
                         classNames={{
                             months: "w-full",
                             month: "w-full",

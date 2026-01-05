@@ -14,7 +14,7 @@ interface WorkoutListProps {
 }
 
 export function WorkoutList({ date, submissions, onDelete, isAdmin, onPlay }: WorkoutListProps) {
-    const formattedDate = format(date, 'EEE, MMM d', { locale: ja }).toUpperCase()
+    const formattedDate = format(date, 'yyyy/MM/dd(eee)', { locale: ja })
 
     return (
         <div className="space-y-4 px-1 pb-20">
