@@ -55,29 +55,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         try {
             console.log("Fetching profile for:", email)
 
+            if (!email) {
+                setLoading(false)
+                return
+            }
+
             // Check authorized_users first
-            const { data: authUser, error: authError } = await supabase
+            const { data: authUserResult, error: authError } = await supabase
                 .from('authorized_users' as any)
                 .select('role')
                 .eq('email', email)
                 .single()
 
+            const authUser = authUserResult as any
+
             if (authError || !authUser) {
                 console.warn("User not authorized:", email)
                 // If not authorized, sign out
-                if (email) {
-                    await signOut()
-                    toast({
-                        title: "ログイン制限",
-                        description: "このメールアドレスは許可されていません。管理者に登録を依頼してください。",
-                        variant: "destructive",
-                    })
-                    return
-                }
+                await signOut()
+                toast({
+                    title: "ログイン制限",
+                    description: "このメールアドレスは許可されていません。管理者に登録を依頼してください。",
+                    variant: "destructive",
+                })
+                return
             }
 
             const { data, error } = await supabase
-                .from('profiles')
+                .from('profiles' as any)
                 .select('*')
                 .eq('id', userId)
                 .single()
@@ -97,7 +102,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 }
 
                 const { error: insertError } = await supabase
-                    .from('profiles')
+                    .from('profiles' as any)
                     .insert(newProfile as any)
 
                 if (insertError) {
@@ -132,9 +137,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 }
 
                 if (needsUpdate) {
-                    await supabase
-                        .from('profiles')
-                        .update(updatedData as any)
+                    await (supabase.from('profiles') as any)
+                        .update(updatedData)
                         .eq('id', userId)
 
                     setProfile(updatedData)

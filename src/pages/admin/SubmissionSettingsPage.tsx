@@ -72,11 +72,11 @@ export default function SubmissionSettingsPage() {
         if (!selectedClientId || !newItemName.trim()) return
 
         const { error } = await supabase
-            .from('submission_items')
+            .from('submission_items' as any)
             .insert({
                 client_id: selectedClientId,
                 name: newItemName.trim()
-            })
+            } as any)
 
         if (error) {
             alert('Error adding item: ' + error.message)
@@ -90,7 +90,7 @@ export default function SubmissionSettingsPage() {
         if (!confirm('この項目を削除してよろしいですか？')) return
 
         const { error } = await supabase
-            .from('submission_items')
+            .from('submission_items' as any)
             .delete()
             .eq('id', id)
 
@@ -137,7 +137,7 @@ export default function SubmissionSettingsPage() {
             })
         }
 
-        const { error } = await supabase.from('submission_rules').insert(inserts as any)
+        const { error } = await supabase.from('submission_rules' as any).insert(inserts as any)
 
         if (error) {
             alert('Error adding rule: ' + error.message)
@@ -153,7 +153,7 @@ export default function SubmissionSettingsPage() {
         if (!confirm('この設定を削除してよろしいですか？')) return
 
         const { error } = await supabase
-            .from('submission_rules')
+            .from('submission_rules' as any)
             .delete()
             .eq('id', id)
 
