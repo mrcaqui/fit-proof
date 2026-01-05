@@ -65,6 +65,7 @@ export interface Database {
                     duration: number | null
                     comment_text: string | null
                     status: 'success' | 'fail' | 'excused'
+                    target_date: string | null
                     created_at: string
                 }
                 Insert: {
@@ -76,6 +77,7 @@ export interface Database {
                     duration?: number | null
                     comment_text?: string | null
                     status?: 'success' | 'fail' | 'excused'
+                    target_date?: string | null
                     created_at?: string
                 }
                 Update: {
@@ -87,6 +89,7 @@ export interface Database {
                     duration?: number | null
                     comment_text?: string | null
                     status?: 'success' | 'fail' | 'excused'
+                    target_date?: string | null
                     created_at?: string
                 }
             }
