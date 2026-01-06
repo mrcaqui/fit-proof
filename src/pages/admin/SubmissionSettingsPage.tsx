@@ -89,9 +89,9 @@ export default function SubmissionSettingsPage() {
     const handleDeleteItem = async (id: number) => {
         if (!confirm('この項目を削除してよろしいですか？')) return
 
-        const { error } = await supabase
-            .from('submission_items' as any)
-            .delete()
+        const client = supabase.from('submission_items' as any) as any
+        const { error } = await client
+            .update({ deleted_at: new Date().toISOString() })
             .eq('id', id)
 
         if (error) {
@@ -152,9 +152,9 @@ export default function SubmissionSettingsPage() {
     const handleDeleteRule = async (id: number) => {
         if (!confirm('この設定を削除してよろしいですか？')) return
 
-        const { error } = await supabase
-            .from('submission_rules' as any)
-            .delete()
+        const client = supabase.from('submission_rules' as any) as any
+        const { error } = await client
+            .update({ deleted_at: new Date().toISOString() })
             .eq('id', id)
 
         if (error) {
@@ -220,13 +220,13 @@ export default function SubmissionSettingsPage() {
                             </div>
 
                             <div className="space-y-2">
-                                {submissionItems.length === 0 ? (
+                                {submissionItems.filter(i => !i.deleted_at).length === 0 ? (
                                     <div className="text-sm text-muted-foreground italic p-4 border border-dashed rounded bg-muted/20 text-center">
                                         設定された項目はありません（デフォルト設定）
                                     </div>
                                 ) : (
                                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                                        {submissionItems.map(item => (
+                                        {submissionItems.filter(i => !i.deleted_at).map(item => (
                                             <div key={item.id} className="flex items-center justify-between p-3 rounded-lg border bg-card shadow-sm">
                                                 <span className="font-medium truncate">{item.name}</span>
                                                 <Button
@@ -318,7 +318,7 @@ export default function SubmissionSettingsPage() {
 
                     <RuleList
                         type="deadline"
-                        rules={rules.filter(r => r.rule_type === 'deadline')}
+                        rules={rules.filter(r => r.rule_type === 'deadline' && !r.deleted_at)}
                         onDelete={handleDeleteRule}
                     />
                 </div>
@@ -401,7 +401,7 @@ export default function SubmissionSettingsPage() {
 
                     <RuleList
                         type="target_day"
-                        rules={rules.filter(r => r.rule_type === 'target_day')}
+                        rules={rules.filter(r => r.rule_type === 'target_day' && !r.deleted_at)}
                         onDelete={handleDeleteRule}
                     />
                 </div>

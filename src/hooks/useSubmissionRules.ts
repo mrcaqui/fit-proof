@@ -49,11 +49,18 @@ export function useSubmissionRules(clientId?: string) {
         // Let's assume rules created TODAY apply to today and future.
         const effectiveRules = rules.filter(r => {
             const ruleCreated = parseISO(r.created_at)
+            const ruleDeleted = r.deleted_at ? parseISO(r.deleted_at) : null
+
             // Rule is effective if it was created before or on the target date.
-            // Using setHours(23,59,59) for the target date to include rules created on that day.
             const endOfTargetDate = new Date(date)
             endOfTargetDate.setHours(23, 59, 59, 999)
-            return ruleCreated <= endOfTargetDate && r.rule_type === type
+
+            // 1. Must be created at or before target date
+            const isCreated = ruleCreated <= endOfTargetDate
+            // 2. Must not be deleted, OR must be deleted AFTER the target date
+            const isNotDeleted = !ruleDeleted || ruleDeleted > endOfTargetDate
+
+            return isCreated && isNotDeleted && r.rule_type === type
         })
 
         if (!effectiveRules.length) return null

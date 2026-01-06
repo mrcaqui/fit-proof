@@ -87,15 +87,13 @@ export default function CalendarPage() {
 
     // Generate mapping of dates to their status indicators
     const dayStatusMap = useMemo(() => {
-        const map: Record<string, { hasSubmission: boolean; hasSuccess: boolean; hasFail: boolean; hasComment: boolean; submittedCount: number; totalItems: number }> = {}
-
-        const totalItemsCount = submissionItems.length > 0 ? submissionItems.length : 1
+        const map: Record<string, { hasSubmission: boolean; hasSuccess: boolean; hasFail: boolean; hasComment: boolean; submittedCount: number }> = {}
 
         workouts.forEach(s => {
             if (!s.target_date) return
             const d = parseISO(s.target_date)
             const key = format(d, "yyyy-MM-dd")
-            if (!map[key]) map[key] = { hasSubmission: false, hasSuccess: false, hasFail: false, hasComment: false, submittedCount: 0, totalItems: totalItemsCount }
+            if (!map[key]) map[key] = { hasSubmission: false, hasSuccess: false, hasFail: false, hasComment: false, submittedCount: 0 }
 
             map[key].hasSubmission = true
             map[key].hasSuccess ||= s.status === "success"
@@ -105,7 +103,7 @@ export default function CalendarPage() {
         })
 
         return map
-    }, [workouts, submissionItems])
+    }, [workouts])
 
     const handlePlusClick = (date: Date) => {
         setSelectedDate(date)
@@ -185,7 +183,21 @@ export default function CalendarPage() {
                                 const isTargetDay = targetDayRule === null || targetDayRule === 'true'
 
                                 const submittedCount = st?.submittedCount || 0
-                                const totalItems = submissionItems.length > 0 ? submissionItems.length : 1
+
+                                // Calculate required items for this specific date (Logical Delete aware)
+                                const endOfTargetDate = new Date(date)
+                                endOfTargetDate.setHours(23, 59, 59, 999)
+
+                                const effectiveItems = submissionItems.filter(item => {
+                                    const created = parseISO(item.created_at)
+                                    const deleted = item.deleted_at ? parseISO(item.deleted_at) : null
+
+                                    const isCreated = created <= endOfTargetDate
+                                    const isNotDeleted = !deleted || deleted > endOfTargetDate
+                                    return isCreated && isNotDeleted
+                                })
+
+                                const totalItems = effectiveItems.length > 0 ? effectiveItems.length : 1
                                 const isComplete = submittedCount >= totalItems
 
                                 // Show Plus if: (No submission OR (Current submissions < Required submissions)) AND (No client selected by Admin OR is User) AND isTargetDay
@@ -233,7 +245,7 @@ export default function CalendarPage() {
                                         {/* Bottom Content: Progress & Deadline (Pushed to bottom only if space permits, otherwise flows) */}
                                         <div className="mt-auto w-full px-0.5 flex flex-col gap-0.5 items-center justify-end">
                                             {/* Progress Indicator */}
-                                            {submissionItems.length > 0 && isTargetDay && (
+                                            {effectiveItems.length > 0 && isTargetDay && (
                                                 <div className={`text-[9px] font-bold flex items-center justify-center gap-0.5 leading-none ${isComplete ? 'text-green-600' : 'text-orange-500'}`}>
                                                     <span>{submittedCount}/{totalItems}</span>
                                                 </div>
@@ -261,7 +273,14 @@ export default function CalendarPage() {
                 onDelete={deleteWorkout}
                 isAdmin={isAdmin}
                 onPlay={(key) => setSelectedVideo(getR2PublicUrl(key))}
-                submissionItems={submissionItems}
+                submissionItems={submissionItems.filter(item => {
+                    // Only show items that were effective for the selected date
+                    const endOfSelectedDate = new Date(selectedDate)
+                    endOfSelectedDate.setHours(23, 59, 59, 999)
+                    const created = parseISO(item.created_at)
+                    const deleted = item.deleted_at ? parseISO(item.deleted_at) : null
+                    return created <= endOfSelectedDate && (!deleted || deleted > endOfSelectedDate)
+                })}
             />
 
             {!selectedClientId && (
@@ -287,7 +306,14 @@ export default function CalendarPage() {
 
             {isItemSelectionOpen && (
                 <ItemSelectionModal
-                    items={submissionItems}
+                    items={submissionItems.filter(item => {
+                        // Only show items that are effective for the selected date
+                        const endOfSelectedDate = new Date(selectedDate)
+                        endOfSelectedDate.setHours(23, 59, 59, 999)
+                        const created = parseISO(item.created_at)
+                        const deleted = item.deleted_at ? parseISO(item.deleted_at) : null
+                        return created <= endOfSelectedDate && (!deleted || deleted > endOfSelectedDate)
+                    })}
                     completedItemIds={selectedDateSubmissions.map(s => s.submission_item_id).filter(Boolean) as number[]}
                     onClose={() => setIsItemSelectionOpen(false)}
                     onSelect={(item) => {
