@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/select"
 import { cn } from '@/lib/utils'
 import { format, parseISO } from 'date-fns'
+import { Settings } from 'lucide-react'
 
 const DAYS_OF_WEEK = [
     { label: '日', value: 0 },
@@ -25,6 +26,15 @@ const DAYS_OF_WEEK = [
     { label: '木', value: 4 },
     { label: '金', value: 5 },
     { label: '土', value: 6 },
+]
+
+const SUBMISSION_DAYS_OPTIONS = [
+    { label: '当日のみ', value: 0 },
+    { label: '3日まで', value: 3 },
+    { label: '7日まで', value: 7 },
+    { label: '14日まで', value: 14 },
+    { label: '30日まで', value: 30 },
+    { label: '無制限', value: 9999 },
 ]
 
 export default function SubmissionSettingsPage() {
@@ -43,6 +53,11 @@ export default function SubmissionSettingsPage() {
     const [t_days, setTDays] = useState<number[]>([])
     const [t_date, setTDate] = useState<string>(format(new Date(), 'yyyy-MM-dd'))
     const [t_value, setTValue] = useState(true)
+
+    // Calendar submission limit state
+    const [pastSubmissionDays, setPastSubmissionDays] = useState<number>(0)
+    const [futureSubmissionDays, setFutureSubmissionDays] = useState<number>(0)
+    const [isUpdatingCalendarSettings, setIsUpdatingCalendarSettings] = useState(false)
 
     // Fetch clients
     useEffect(() => {
@@ -64,6 +79,43 @@ export default function SubmissionSettingsPage() {
         }
         fetchClients()
     }, [selectedClientId])
+
+    // Fetch current calendar settings when client changes
+    useEffect(() => {
+        const fetchCalendarSettings = async () => {
+            if (!selectedClientId) return
+
+            const { data, error } = await supabase
+                .from('profiles')
+                .select('past_submission_days, future_submission_days')
+                .eq('id', selectedClientId)
+                .single() as { data: { past_submission_days: number | null, future_submission_days: number | null } | null, error: any }
+
+            if (!error && data) {
+                setPastSubmissionDays(data.past_submission_days ?? 0)
+                setFutureSubmissionDays(data.future_submission_days ?? 0)
+            }
+        }
+        fetchCalendarSettings()
+    }, [selectedClientId])
+
+    const handleUpdateCalendarSettings = async () => {
+        if (!selectedClientId) return
+
+        setIsUpdatingCalendarSettings(true)
+        const client = supabase.from('profiles') as any
+        const { error } = await client
+            .update({
+                past_submission_days: pastSubmissionDays,
+                future_submission_days: futureSubmissionDays
+            })
+            .eq('id', selectedClientId)
+
+        if (error) {
+            alert('設定の保存に失敗しました: ' + error.message)
+        }
+        setIsUpdatingCalendarSettings(false)
+    }
 
     const { items: submissionItems, refetch: refetchItems } = useSubmissionItems(selectedClientId)
     const [newItemName, setNewItemName] = useState('')
@@ -194,6 +246,76 @@ export default function SubmissionSettingsPage() {
             </div>
 
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
+                {/* Calendar Submission Limit Card */}
+                <div className="space-y-6 md:col-span-1 xl:col-span-2">
+                    <Card className="border-primary/20 shadow-md">
+                        <CardHeader className="bg-primary/5 border-b">
+                            <CardTitle className="flex items-center gap-2 text-primary">
+                                <Settings className="w-5 h-5" /> カレンダー投稿制限
+                            </CardTitle>
+                            <CardDescription>
+                                クライアントがカレンダー上で投稿できる日の範囲を制限します。<br />
+                                本日は常に投稿可能です。
+                            </CardDescription>
+                        </CardHeader>
+                        <CardContent className="space-y-6 pt-6">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                                <div className="space-y-2">
+                                    <Label>過去の投稿を許可</Label>
+                                    <Select
+                                        value={String(pastSubmissionDays)}
+                                        onValueChange={(v) => setPastSubmissionDays(Number(v))}
+                                    >
+                                        <SelectTrigger>
+                                            <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {SUBMISSION_DAYS_OPTIONS.map(opt => (
+                                                <SelectItem key={opt.value} value={String(opt.value)}>
+                                                    {opt.label}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                    <p className="text-xs text-muted-foreground">
+                                        例: 3日まで = 3日前まで投稿可能
+                                    </p>
+                                </div>
+
+                                <div className="space-y-2">
+                                    <Label>未来の投稿を許可</Label>
+                                    <Select
+                                        value={String(futureSubmissionDays)}
+                                        onValueChange={(v) => setFutureSubmissionDays(Number(v))}
+                                    >
+                                        <SelectTrigger>
+                                            <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {SUBMISSION_DAYS_OPTIONS.map(opt => (
+                                                <SelectItem key={opt.value} value={String(opt.value)}>
+                                                    {opt.label}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                    <p className="text-xs text-muted-foreground">
+                                        例: 7日まで = 7日後まで投稿可能
+                                    </p>
+                                </div>
+                            </div>
+
+                            <Button
+                                onClick={handleUpdateCalendarSettings}
+                                disabled={isUpdatingCalendarSettings}
+                                className="w-full"
+                            >
+                                {isUpdatingCalendarSettings ? '保存中...' : '設定を保存'}
+                            </Button>
+                        </CardContent>
+                    </Card>
+                </div>
+
                 {/* Submission Items Card */}
                 <div className="space-y-6 md:col-span-1 xl:col-span-2">
                     <Card className="border-primary/20 shadow-md">

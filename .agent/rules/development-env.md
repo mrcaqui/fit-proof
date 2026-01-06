@@ -28,8 +28,9 @@ Agentは開発サーバーの起動、パッケージ操作、テストのすべ
 
 #### 🔍 動作確認と検証 (Verification)
 
-* **Browser Agent の活用:** コード変更後は Antigravity の **Browser Agent** を起動し、 `http://localhost:5175` にアクセスして UI の正常性を確認してください。
 * **ホットリロード:** `CHOKIDAR_USEPOLLING=true` が設定されているため、通常は自動反映されます。反映されない場合は `docker compose restart app` を試行してください。
+- DBにはSupabaseを利用しています。SQL操作が必要な場合はSQL editorで利用できるコマンドを提示して、ユーザでの実行を促して下さい。
+- UIが関連する動作確認はユーザが行います。どう確認すべきかのステップを提示の上、ユーザへ確認を促して下さい。
 
 ### 3. 推奨ワークフロー (Workflow Strategy)
 

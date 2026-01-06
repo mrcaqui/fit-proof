@@ -16,6 +16,8 @@ export interface Database {
                     role: 'admin' | 'client'
                     streak_count: number
                     updated_at: string | null
+                    past_submission_days: number
+                    future_submission_days: number
                 }
                 Insert: {
                     id: string
@@ -23,6 +25,8 @@ export interface Database {
                     role?: 'admin' | 'client'
                     streak_count?: number
                     updated_at?: string | null
+                    past_submission_days?: number
+                    future_submission_days?: number
                 }
                 Update: {
                     id?: string
@@ -30,6 +34,8 @@ export interface Database {
                     role?: 'admin' | 'client'
                     streak_count?: number
                     updated_at?: string | null
+                    past_submission_days?: number
+                    future_submission_days?: number
                 }
             }
             submission_items: {

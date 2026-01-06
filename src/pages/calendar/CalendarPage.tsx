@@ -1,7 +1,7 @@
 import { useMemo, useState, useEffect } from 'react'
 import { Calendar } from "@/components/ui/calendar"
 import { useWorkoutHistory } from '@/hooks/useWorkoutHistory'
-import { format, isSameDay, parseISO } from 'date-fns'
+import { format, isSameDay, parseISO, differenceInDays, startOfDay } from 'date-fns'
 import { UploadModal } from '@/components/upload/UploadModal'
 import { WorkoutList } from '@/components/calendar/WorkoutList'
 import { Plus, Clock } from 'lucide-react'
@@ -200,8 +200,24 @@ export default function CalendarPage() {
                                 const totalItems = effectiveItems.length > 0 ? effectiveItems.length : 1
                                 const isComplete = submittedCount >= totalItems
 
-                                // Show Plus if: (No submission OR (Current submissions < Required submissions)) AND (No client selected by Admin OR is User) AND isTargetDay
-                                const showPlus = (!isComplete) && !selectedClientId && isTargetDay
+                                // Show Plus if:
+                                // 1. NOT complete (can still submit)
+                                // 2. NOT viewing another client's calendar (admin mode)
+                                // 3. IS a target day
+                                // 4. Within allowed date range based on profile settings
+                                const today = startOfDay(new Date())
+                                const dateStart = startOfDay(date)
+                                const daysDiff = differenceInDays(dateStart, today) // positive = future, negative = past
+
+                                const pastAllowed = profile?.past_submission_days ?? 0
+                                const futureAllowed = profile?.future_submission_days ?? 0
+
+                                const isWithinAllowedRange =
+                                    daysDiff === 0 || // Today is always allowed
+                                    (daysDiff > 0 && daysDiff <= futureAllowed) || // Future days
+                                    (daysDiff < 0 && Math.abs(daysDiff) <= pastAllowed) // Past days
+
+                                const showPlus = isWithinAllowedRange && (!isComplete) && !selectedClientId && isTargetDay
 
                                 return (
                                     <div className="relative flex flex-col items-center justify-start w-full min-h-[95px] sm:min-h-[105px] pt-1 pb-1 transition-colors hover:bg-muted/10 font-sans">
