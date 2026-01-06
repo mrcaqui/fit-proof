@@ -322,14 +322,7 @@ export default function CalendarPage() {
 
             {isItemSelectionOpen && (
                 <ItemSelectionModal
-                    items={submissionItems.filter(item => {
-                        // Only show items that are effective for the selected date
-                        const endOfSelectedDate = new Date(selectedDate)
-                        endOfSelectedDate.setHours(23, 59, 59, 999)
-                        const created = parseISO(item.created_at)
-                        const deleted = item.deleted_at ? parseISO(item.deleted_at) : null
-                        return created <= endOfSelectedDate && (!deleted || deleted > endOfSelectedDate)
-                    })}
+                    items={submissionItems.filter(item => !item.deleted_at)}
                     completedItemIds={selectedDateSubmissions.map(s => s.submission_item_id).filter(Boolean) as number[]}
                     onClose={() => setIsItemSelectionOpen(false)}
                     onSelect={(item) => {
