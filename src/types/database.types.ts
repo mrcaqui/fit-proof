@@ -74,6 +74,7 @@ export interface Database {
                     target_date: string | null
                     submission_item_id: number | null
                     created_at: string
+                    file_name: string | null
                 }
                 Insert: {
                     id?: number

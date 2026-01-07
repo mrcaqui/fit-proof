@@ -15,6 +15,19 @@ export async function generateThumbnail(
         const canvas = document.createElement('canvas')
         const ctx = canvas.getContext('2d')
 
+        // Add timeout for generation
+        const timeout = setTimeout(() => {
+            cleanup()
+            reject(new Error('Thumbnail generation timed out'))
+        }, 5000)
+
+        const cleanup = () => {
+            clearTimeout(timeout)
+            URL.revokeObjectURL(video.src)
+            video.src = ''
+            video.load()
+        }
+
         video.onloadedmetadata = () => {
             // Seek to the desired time (or end if video is shorter)
             video.currentTime = Math.min(seekTime, video.duration)
@@ -25,17 +38,23 @@ export async function generateThumbnail(
             canvas.height = video.videoHeight
 
             if (ctx) {
-                ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
-                const dataUrl = canvas.toDataURL('image/jpeg', 0.8)
-                URL.revokeObjectURL(video.src)
-                resolve(dataUrl)
+                try {
+                    ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+                    const dataUrl = canvas.toDataURL('image/jpeg', 0.8)
+                    cleanup()
+                    resolve(dataUrl)
+                } catch (err) {
+                    cleanup()
+                    reject(err)
+                }
             } else {
+                cleanup()
                 reject(new Error('Could not get canvas context'))
             }
         }
 
         video.onerror = () => {
-            URL.revokeObjectURL(video.src)
+            cleanup()
             reject(new Error('Error loading video for thumbnail'))
         }
 

@@ -26,7 +26,6 @@ import { VideoPlayerModal } from '@/components/admin/VideoPlayerModal'
 import { getR2PublicUrl } from '@/lib/r2'
 import { useSubmissionRules } from '@/hooks/useSubmissionRules'
 import { useSubmissionItems } from '@/hooks/useSubmissionItems'
-import { ItemSelectionModal } from '@/components/calendar/ItemSelectionModal'
 import { useSwipeable } from 'react-swipeable'
 
 export default function CalendarPage() {
@@ -51,8 +50,6 @@ export default function CalendarPage() {
     const [selectedDate, setSelectedDate] = useState<Date>(new Date())
     const [currentMonth, setCurrentMonth] = useState<Date>(new Date())
     const [isUploadModalOpen, setIsUploadModalOpen] = useState(false)
-    const [isItemSelectionOpen, setIsItemSelectionOpen] = useState(false)
-    const [selectedSubmissionItemId, setSelectedSubmissionItemId] = useState<number | null>(null)
     const [isDatePickerOpen, setIsDatePickerOpen] = useState(false)
 
     // 月変更ハンドラー（日付の同期付き）
@@ -137,19 +134,40 @@ export default function CalendarPage() {
 
     // Generate mapping of dates to their status indicators
     const dayStatusMap = useMemo(() => {
-        const map: Record<string, { hasSubmission: boolean; hasSuccess: boolean; hasFail: boolean; hasComment: boolean; submittedCount: number }> = {}
+        const map: Record<string, {
+            hasSubmission: boolean;
+            hasSuccess: boolean;
+            hasFail: boolean;
+            hasComment: boolean;
+            submittedCount: number;
+            submittedItemIds: Set<number | null>; // 重複カウント防止用
+        }> = {}
 
         workouts.forEach(s => {
             if (!s.target_date) return
             const d = parseISO(s.target_date)
             const key = format(d, "yyyy-MM-dd")
-            if (!map[key]) map[key] = { hasSubmission: false, hasSuccess: false, hasFail: false, hasComment: false, submittedCount: 0 }
+            if (!map[key]) {
+                map[key] = {
+                    hasSubmission: false,
+                    hasSuccess: false,
+                    hasFail: false,
+                    hasComment: false,
+                    submittedCount: 0,
+                    submittedItemIds: new Set()
+                }
+            }
 
             map[key].hasSubmission = true
             map[key].hasSuccess ||= s.status === "success"
             map[key].hasFail ||= s.status === "fail"
             map[key].hasComment ||= false // TODO
-            map[key].submittedCount += 1
+
+            // 同じ項目ID（nullを含む）の投稿がまだカウントされていない場合のみカウント
+            if (!map[key].submittedItemIds.has(s.submission_item_id)) {
+                map[key].submittedCount += 1
+                map[key].submittedItemIds.add(s.submission_item_id)
+            }
         })
 
         return map
@@ -157,12 +175,7 @@ export default function CalendarPage() {
 
     const handlePlusClick = (date: Date) => {
         setSelectedDate(date)
-        if (submissionItems.length > 0) {
-            setIsItemSelectionOpen(true)
-        } else {
-            setSelectedSubmissionItemId(null)
-            setIsUploadModalOpen(true)
-        }
+        setIsUploadModalOpen(true)
     }
 
     // 効果的な提出項目を取得するヘルパー関数
@@ -411,24 +424,15 @@ export default function CalendarPage() {
                 <UploadModal
                     onClose={() => {
                         setIsUploadModalOpen(false)
-                        setSelectedSubmissionItemId(null)
                     }}
                     onSuccess={() => refetch(true)}
                     targetDate={selectedDate}
-                    submissionItemId={selectedSubmissionItemId}
-                />
-            )}
-
-            {isItemSelectionOpen && (
-                <ItemSelectionModal
-                    items={submissionItems.filter(item => !item.deleted_at)}
-                    completedItemIds={selectedDateSubmissions.map(s => s.submission_item_id).filter(Boolean) as number[]}
-                    onClose={() => setIsItemSelectionOpen(false)}
-                    onSelect={(item) => {
-                        setSelectedSubmissionItemId(item.id)
-                        setIsItemSelectionOpen(false)
-                        setIsUploadModalOpen(true)
-                    }}
+                    items={getEffectiveSubmissionItems(selectedDate)}
+                    completedSubmissions={selectedDateSubmissions.map(s => ({
+                        id: s.id,
+                        item_id: s.submission_item_id,
+                        file_name: (s as any).file_name || null // Cast as any because type might not be updated in IDE yet
+                    }))}
                 />
             )}
 
