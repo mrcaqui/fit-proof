@@ -1,12 +1,13 @@
 import { useMemo, useState, useEffect } from 'react'
 import { Calendar } from "@/components/ui/calendar"
 import { useWorkoutHistory } from '@/hooks/useWorkoutHistory'
-import { format, isSameDay, parseISO, differenceInDays, startOfDay } from 'date-fns'
+import { format, isSameDay, parseISO, differenceInDays, startOfDay, addMonths, subMonths, isSameMonth, lastDayOfMonth } from 'date-fns'
+import { ja } from 'date-fns/locale'
 import { UploadModal } from '@/components/upload/UploadModal'
-import { WorkoutList } from '@/components/calendar/WorkoutList'
-import { Plus, Clock } from 'lucide-react'
+import { SwipeableWorkoutView } from '@/components/calendar/SwipeableWorkoutView'
+import { Plus, Clock, CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { useAuth } from '@/context/AuthContext'
 import { supabase } from '@/lib/supabase'
 import {
@@ -16,11 +17,17 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select"
+import {
+    Popover,
+    PopoverContent,
+    PopoverTrigger,
+} from "@/components/ui/popover"
 import { VideoPlayerModal } from '@/components/admin/VideoPlayerModal'
 import { getR2PublicUrl } from '@/lib/r2'
 import { useSubmissionRules } from '@/hooks/useSubmissionRules'
 import { useSubmissionItems } from '@/hooks/useSubmissionItems'
 import { ItemSelectionModal } from '@/components/calendar/ItemSelectionModal'
+import { useSwipeable } from 'react-swipeable'
 
 export default function CalendarPage() {
     const { profile, user } = useAuth()
@@ -42,9 +49,52 @@ export default function CalendarPage() {
 
     const { workouts, loading, refetch, deleteWorkout } = useWorkoutHistory(selectedClientId)
     const [selectedDate, setSelectedDate] = useState<Date>(new Date())
+    const [currentMonth, setCurrentMonth] = useState<Date>(new Date())
     const [isUploadModalOpen, setIsUploadModalOpen] = useState(false)
     const [isItemSelectionOpen, setIsItemSelectionOpen] = useState(false)
     const [selectedSubmissionItemId, setSelectedSubmissionItemId] = useState<number | null>(null)
+    const [isDatePickerOpen, setIsDatePickerOpen] = useState(false)
+
+    // 月変更ハンドラー（日付の同期付き）
+    const handleMonthChange = (newMonth: Date) => {
+        setCurrentMonth(newMonth)
+
+        // 現在選択されている「日」を取得
+        const currentDay = selectedDate.getDate()
+        // 新しい月の最後の日を取得
+        const lastDayOfNewMonth = lastDayOfMonth(newMonth).getDate()
+
+        // 31日を選択していて、遷移先が30日までしかない場合を考慮
+        const nextDay = Math.min(currentDay, lastDayOfNewMonth)
+
+        const nextDate = new Date(newMonth.getFullYear(), newMonth.getMonth(), nextDay)
+        setSelectedDate(nextDate)
+    }
+
+    // 月スワイプ用ハンドラー
+    const monthSwipeHandlers = useSwipeable({
+        onSwipedLeft: () => handleMonthChange(addMonths(currentMonth, 1)),
+        onSwipedRight: () => handleMonthChange(subMonths(currentMonth, 1)),
+        preventScrollOnSwipe: true,
+        trackMouse: false,
+    })
+
+    // 日付変更時に月も同期
+    const handleDateChange = (date: Date) => {
+        setSelectedDate(date)
+        if (!isSameMonth(date, currentMonth)) {
+            setCurrentMonth(date)
+        }
+    }
+
+    // 今日ボタン
+    const goToToday = () => {
+        const today = new Date()
+        setSelectedDate(today)
+        setCurrentMonth(today)
+    }
+
+    const isToday = isSameDay(selectedDate, new Date())
 
     // Persist selection for admins
     useEffect(() => {
@@ -115,6 +165,17 @@ export default function CalendarPage() {
         }
     }
 
+    // 効果的な提出項目を取得するヘルパー関数
+    const getEffectiveSubmissionItems = (date: Date) => {
+        const endOfTargetDate = new Date(date)
+        endOfTargetDate.setHours(23, 59, 59, 999)
+        return submissionItems.filter(item => {
+            const created = parseISO(item.created_at)
+            const deleted = item.deleted_at ? parseISO(item.deleted_at) : null
+            return created <= endOfTargetDate && (!deleted || deleted > endOfTargetDate)
+        })
+    }
+
     if (loading && workouts.length === 0) {
         return <div className="p-8 text-center text-muted-foreground animate-pulse">データを読み込み中...</div>
     }
@@ -146,23 +207,77 @@ export default function CalendarPage() {
                         </div>
                     )}
                 </div>
+                {/* 今日ボタン */}
+                <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={goToToday}
+                    disabled={isToday}
+                    className="gap-1"
+                >
+                    <CalendarDays className="w-4 h-4" />
+                    今日
+                </Button>
             </div>
 
             <Card className="border shadow-sm overflow-hidden mx-1 sm:mx-0">
                 <CardHeader className="py-2 border-b bg-muted/30">
-                    <CardTitle className="text-sm font-medium opacity-70">Workout History</CardTitle>
+                    <div className="flex items-center justify-between">
+                        {/* 月移動ボタン（デスクトップ用・左） */}
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            onClick={() => handleMonthChange(subMonths(currentMonth, 1))}
+                        >
+                            <ChevronLeft className="h-4 w-4" />
+                        </Button>
+
+                        {/* ミニカレンダー日付選択 */}
+                        <Popover open={isDatePickerOpen} onOpenChange={setIsDatePickerOpen}>
+                            <PopoverTrigger asChild>
+                                <button className="text-sm font-medium hover:underline cursor-pointer px-2 py-1 rounded hover:bg-muted/50 transition-colors">
+                                    {format(currentMonth, 'yyyy年 M月', { locale: ja })}
+                                </button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-auto p-0" align="center">
+                                <Calendar
+                                    mode="single"
+                                    selected={selectedDate}
+                                    onSelect={(date) => {
+                                        if (date) {
+                                            handleDateChange(date)
+                                            setIsDatePickerOpen(false)
+                                        }
+                                    }}
+                                    className="rounded-md border"
+                                />
+                            </PopoverContent>
+                        </Popover>
+
+                        {/* 月移動ボタン（デスクトップ用・右） */}
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            onClick={() => handleMonthChange(addMonths(currentMonth, 1))}
+                        >
+                            <ChevronRight className="h-4 w-4" />
+                        </Button>
+                    </div>
                 </CardHeader>
-                <CardContent className="p-0 sm:p-2">
+                <CardContent className="p-0 sm:p-2" {...monthSwipeHandlers}>
                     <Calendar
                         mode="single"
                         selected={selectedDate}
-                        onSelect={(d) => d && setSelectedDate(d)}
-                        month={selectedDate}
-                        onMonthChange={(m) => setSelectedDate(m)}
+                        onSelect={(d) => d && handleDateChange(d)}
+                        month={currentMonth}
+                        onMonthChange={setCurrentMonth}
                         className="w-full p-0 sm:p-3"
                         classNames={{
                             months: "w-full",
                             month: "w-full",
+                            caption: "hidden", // カスタムヘッダーを使用するため非表示
                             table: "w-full border-collapse",
                             head_row: "flex w-full mb-2",
                             head_cell: "text-muted-foreground w-[14.28%] font-normal text-[0.8rem]",
@@ -175,7 +290,7 @@ export default function CalendarPage() {
                                 const key = format(date, "yyyy-MM-dd")
                                 const st = dayStatusMap[key]
                                 const isSelected = isSameDay(date, selectedDate)
-                                const isToday = isSameDay(date, new Date())
+                                const isTodayDate = isSameDay(date, new Date())
 
                                 // Fetch rules for this specific day
                                 const deadlineRule = getRuleForDate(date, 'deadline')
@@ -185,17 +300,7 @@ export default function CalendarPage() {
                                 const submittedCount = st?.submittedCount || 0
 
                                 // Calculate required items for this specific date (Logical Delete aware)
-                                const endOfTargetDate = new Date(date)
-                                endOfTargetDate.setHours(23, 59, 59, 999)
-
-                                const effectiveItems = submissionItems.filter(item => {
-                                    const created = parseISO(item.created_at)
-                                    const deleted = item.deleted_at ? parseISO(item.deleted_at) : null
-
-                                    const isCreated = created <= endOfTargetDate
-                                    const isNotDeleted = !deleted || deleted > endOfTargetDate
-                                    return isCreated && isNotDeleted
-                                })
+                                const effectiveItems = getEffectiveSubmissionItems(date)
 
                                 const totalItems = effectiveItems.length > 0 ? effectiveItems.length : 1
                                 const isComplete = submittedCount >= totalItems
@@ -225,7 +330,7 @@ export default function CalendarPage() {
                                         <div
                                             className={`w-6 h-6 sm:w-7 sm:h-7 flex items-center justify-center rounded-full text-sm sm:text-base transition-all duration-200 z-10 mb-1 ${isSelected
                                                 ? 'bg-primary text-primary-foreground font-bold shadow-md'
-                                                : isToday ? 'bg-accent text-accent-foreground font-bold' : 'text-foreground font-medium'
+                                                : isTodayDate ? 'bg-accent text-accent-foreground font-bold' : 'text-foreground font-medium'
                                                 }`}
                                         >
                                             {date.getDate()}
@@ -283,20 +388,14 @@ export default function CalendarPage() {
                 </CardContent>
             </Card>
 
-            <WorkoutList
-                date={selectedDate}
-                submissions={selectedDateSubmissions}
+            <SwipeableWorkoutView
+                selectedDate={selectedDate}
+                onDateChange={handleDateChange}
+                workouts={workouts}
                 onDelete={deleteWorkout}
                 isAdmin={isAdmin}
-                onPlay={(key) => setSelectedVideo(getR2PublicUrl(key))}
-                submissionItems={submissionItems.filter(item => {
-                    // Only show items that were effective for the selected date
-                    const endOfSelectedDate = new Date(selectedDate)
-                    endOfSelectedDate.setHours(23, 59, 59, 999)
-                    const created = parseISO(item.created_at)
-                    const deleted = item.deleted_at ? parseISO(item.deleted_at) : null
-                    return created <= endOfSelectedDate && (!deleted || deleted > endOfSelectedDate)
-                })}
+                onPlay={(key: string) => setSelectedVideo(getR2PublicUrl(key))}
+                submissionItems={submissionItems}
             />
 
             {!selectedClientId && (
