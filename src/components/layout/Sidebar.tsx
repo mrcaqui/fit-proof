@@ -9,6 +9,8 @@ import { useState } from "react"
 import { ModeToggle } from "../mode-toggle"
 import { useAuth } from "@/context/AuthContext"
 
+declare const __APP_VERSION__: string
+
 interface SidebarProps extends React.HTMLAttributes<HTMLDivElement> {
     isCollapsed: boolean
     setIsCollapsed: (value: boolean) => void
@@ -110,8 +112,11 @@ export function Sidebar({ className, isCollapsed, setIsCollapsed }: SidebarProps
                     </Button>
                     {!isCollapsed && (
                         <div className="flex items-center justify-between px-4 py-2 border-t mt-2">
-                            <span className="text-sm text-muted-foreground">Theme</span>
-                            <ModeToggle />
+                            <span className="text-xs text-muted-foreground">v{__APP_VERSION__}</span>
+                            <div className="flex items-center gap-2">
+                                <span className="text-sm text-muted-foreground">Theme</span>
+                                <ModeToggle />
+                            </div>
                         </div>
                     )}
                 </div>
@@ -204,8 +209,11 @@ export function MobileNav() {
                         ログアウト
                     </Button>
                     <div className="flex items-center justify-between px-2 pt-2 border-t">
-                        <span className="text-sm text-muted-foreground">Theme</span>
-                        <ModeToggle />
+                        <span className="text-xs text-muted-foreground">v{__APP_VERSION__}</span>
+                        <div className="flex items-center gap-2">
+                            <span className="text-sm text-muted-foreground">Theme</span>
+                            <ModeToggle />
+                        </div>
                     </div>
                 </div>
             </SheetContent>
