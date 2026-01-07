@@ -98,7 +98,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     display_name: googleName || email || null,
                     role: targetRole,
                     streak_count: 0,
-                    updated_at: null
+                    updated_at: null,
+                    past_submission_days: 7,
+                    future_submission_days: 7
                 }
 
                 const { error: insertError } = await supabase
@@ -117,7 +119,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     display_name: googleName || email || null,
                     role: targetRole,
                     streak_count: 0,
-                    updated_at: null
+                    updated_at: null,
+                    past_submission_days: 7,
+                    future_submission_days: 7
                 })
             } else if (data) {
                 const profileData = data as Profile
