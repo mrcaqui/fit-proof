@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
+import { useState, useRef, useMemo, useCallback } from 'react'
 import { format, addDays, subDays, isSameDay, parseISO } from 'date-fns'
 import { ja } from 'date-fns/locale'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
@@ -36,7 +36,7 @@ export function SwipeableWorkoutView({
   const NEXT_TRANSLATE = -(CARD_WIDTH_PERCENT * 2 - PEEK_WIDTH_PERCENT)
 
   const [swipeOffset, setSwipeOffset] = useState(0)
-  const [isSwiping, setIsSwiping] = useState(false)
+  const [, setIsSwiping] = useState(false)
   const [isAnimating, setIsAnimating] = useState(false)
   const [visualTranslate, setVisualTranslate] = useState(BASE_TRANSLATE)
 
