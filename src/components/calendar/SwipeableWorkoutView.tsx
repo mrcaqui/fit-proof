@@ -1,9 +1,10 @@
 import { useState, useRef, useMemo, useCallback } from 'react'
-import { format, addDays, subDays, isSameDay, parseISO } from 'date-fns'
+import { format, addDays, subDays, isSameDay, parseISO, differenceInDays, startOfDay } from 'date-fns'
 import { ja } from 'date-fns/locale'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { WorkoutCard } from './WorkoutCard'
+import { PendingUploadCard } from './PendingUploadCard'
 import { Database } from '@/types/database.types'
 import { useSwipeable } from 'react-swipeable'
 
@@ -19,6 +20,11 @@ interface SwipeableWorkoutViewProps {
   onPlay?: (key: string) => void
   onUpdateStatus?: (id: number, status: 'success' | 'fail' | 'excused' | null) => Promise<any>
   submissionItems?: SubmissionItem[]
+  onUploadSuccess?: () => void
+  isViewingOtherUser?: boolean
+  pastAllowed?: number
+  futureAllowed?: number
+  isRestDay?: boolean
 }
 
 export function SwipeableWorkoutView({
@@ -29,7 +35,12 @@ export function SwipeableWorkoutView({
   isAdmin,
   onPlay,
   onUpdateStatus,
-  submissionItems = []
+  submissionItems = [],
+  onUploadSuccess,
+  isViewingOtherUser = false,
+  pastAllowed = 0,
+  futureAllowed = 0,
+  isRestDay = false
 }: SwipeableWorkoutViewProps) {
   const CARD_WIDTH_PERCENT = 85
   const PEEK_WIDTH_PERCENT = (100 - CARD_WIDTH_PERCENT) / 2
@@ -150,30 +161,69 @@ export function SwipeableWorkoutView({
           </h3>
         </div>
 
-        {submissions.length > 0 ? (
-          <div className="flex flex-col gap-3">
-            {submissions.map((s) => {
-              const item = effectiveItems.find(i => i.id === s.submission_item_id)
-              return (
-                <WorkoutCard
-                  key={s.id}
-                  submission={s}
-                  onDelete={isMain ? onDelete : undefined}
-                  isAdmin={isAdmin}
-                  onPlay={isMain ? onPlay : undefined}
-                  onUpdateStatus={isMain ? onUpdateStatus : undefined}
-                  itemName={item?.name}
+        {(() => {
+          // 投稿済み項目のIDセット
+          const submittedItemIds = new Set(submissions.map(s => s.submission_item_id))
+
+          // 投稿制限チェック
+          const today = startOfDay(new Date())
+          const dateStart = startOfDay(date)
+          const daysDiff = differenceInDays(dateStart, today)
+          const isWithinAllowedRange =
+            daysDiff === 0 || // 今日は常にOK
+            (daysDiff > 0 && daysDiff <= futureAllowed) || // 未来
+            (daysDiff < 0 && Math.abs(daysDiff) <= pastAllowed) // 過去
+
+          // 未投稿項目（他人のカレンダー閲覧時 / 投稿制限範囲外 / 休息日 は表示しない）
+          const pendingItems = (isViewingOtherUser || !isWithinAllowedRange || isRestDay) ? [] : effectiveItems.filter(item => !submittedItemIds.has(item.id))
+          const hasContent = submissions.length > 0 || pendingItems.length > 0
+
+          if (!hasContent) {
+            return (
+              <div className="py-12 text-center rounded-lg border border-dashed border-muted-foreground/20">
+                <p className="text-sm text-muted-foreground">
+                  {isRestDay ? (
+                    <span className="flex flex-col items-center gap-2">
+                      <span className="text-lg font-medium">🌙 本日は休息日です</span>
+                      <span className="text-xs opacity-70">しっかり休んで次のトレーニングに備えましょう</span>
+                    </span>
+                  ) : (
+                    'この日のワークアウトはありません'
+                  )}
+                </p>
+              </div>
+            )
+          }
+
+          return (
+            <div className="flex flex-col gap-3">
+              {/* 投稿済み動画 */}
+              {submissions.map((s) => {
+                const item = effectiveItems.find(i => i.id === s.submission_item_id)
+                return (
+                  <WorkoutCard
+                    key={s.id}
+                    submission={s}
+                    onDelete={isMain ? onDelete : undefined}
+                    isAdmin={isAdmin}
+                    onPlay={isMain ? onPlay : undefined}
+                    onUpdateStatus={isMain ? onUpdateStatus : undefined}
+                    itemName={item?.name}
+                  />
+                )
+              })}
+              {/* 未投稿項目 */}
+              {isMain && pendingItems.map((item) => (
+                <PendingUploadCard
+                  key={`pending-${item.id}`}
+                  item={item}
+                  targetDate={date}
+                  onSuccess={onUploadSuccess}
                 />
-              )
-            })}
-          </div>
-        ) : (
-          <div className="py-12 text-center rounded-lg border border-dashed border-muted-foreground/20">
-            <p className="text-sm text-muted-foreground">
-              この日のワークアウトはありません
-            </p>
-          </div>
-        )}
+              ))}
+            </div>
+          )
+        })()}
       </div>
     )
   }

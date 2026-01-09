@@ -65,9 +65,9 @@ export function useWorkoutHistory(targetUserId?: string) {
                 status,
                 reviewed_at: status ? new Date().toISOString() : null
             }
-            const { error: dbError } = await supabase
-                .from('submissions')
-                .update(updateData as any)
+            const { error: dbError } = await (supabase
+                .from('submissions') as any)
+                .update(updateData)
                 .eq('id', id)
 
             if (dbError) throw dbError
@@ -81,7 +81,32 @@ export function useWorkoutHistory(targetUserId?: string) {
 
     useEffect(() => {
         fetchWorkouts()
-    }, [fetchWorkouts])
+
+        const effectiveUserId = targetUserId || user?.id
+        if (!effectiveUserId) return
+
+        // リアルタイム購読の設定
+        const channel = supabase
+            .channel(`submissions-changes-${effectiveUserId}`)
+            .on(
+                'postgres_changes',
+                {
+                    event: '*', // INSERT, UPDATE, DELETE すべて
+                    schema: 'public',
+                    table: 'submissions',
+                    filter: `user_id=eq.${effectiveUserId}`
+                },
+                () => {
+                    // 変更があったらサイレントに再取得
+                    fetchWorkouts(true)
+                }
+            )
+            .subscribe()
+
+        return () => {
+            supabase.removeChannel(channel)
+        }
+    }, [fetchWorkouts, targetUserId, user?.id])
 
     return {
         workouts,

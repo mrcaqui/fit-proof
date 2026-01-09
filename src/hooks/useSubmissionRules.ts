@@ -35,7 +35,30 @@ export function useSubmissionRules(clientId?: string) {
 
     useEffect(() => {
         fetchRules()
-    }, [fetchRules])
+
+        if (!clientId) return
+
+        // リアルタイム購読の設定
+        const channel = supabase
+            .channel(`submission-rules-${clientId}`)
+            .on(
+                'postgres_changes',
+                {
+                    event: '*',
+                    schema: 'public',
+                    table: 'submission_rules',
+                    filter: `client_id=eq.${clientId}`
+                },
+                () => {
+                    fetchRules()
+                }
+            )
+            .subscribe()
+
+        return () => {
+            supabase.removeChannel(channel)
+        }
+    }, [fetchRules, clientId])
 
     const getRuleForDate = useCallback((date: Date, type: 'deadline' | 'target_day') => {
         if (!rules.length) return null

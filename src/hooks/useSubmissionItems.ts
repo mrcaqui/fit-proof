@@ -35,7 +35,30 @@ export function useSubmissionItems(clientId?: string) {
 
     useEffect(() => {
         fetchItems()
-    }, [fetchItems])
+
+        if (!clientId) return
+
+        // リアルタイム購読の設定
+        const channel = supabase
+            .channel(`submission-items-${clientId}`)
+            .on(
+                'postgres_changes',
+                {
+                    event: '*',
+                    schema: 'public',
+                    table: 'submission_items',
+                    filter: `client_id=eq.${clientId}`
+                },
+                () => {
+                    fetchItems()
+                }
+            )
+            .subscribe()
+
+        return () => {
+            supabase.removeChannel(channel)
+        }
+    }, [fetchItems, clientId])
 
     return { items, loading, error, refetch: fetchItems }
 }

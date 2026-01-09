@@ -3,9 +3,8 @@ import { Calendar } from "@/components/ui/calendar"
 import { useWorkoutHistory } from '@/hooks/useWorkoutHistory'
 import { format, isSameDay, parseISO, differenceInDays, startOfDay, addMonths, subMonths, isSameMonth, lastDayOfMonth } from 'date-fns'
 import { ja } from 'date-fns/locale'
-import { UploadModal } from '@/components/upload/UploadModal'
 import { SwipeableWorkoutView } from '@/components/calendar/SwipeableWorkoutView'
-import { Plus, Clock, CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Clock, CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { useAuth } from '@/context/AuthContext'
@@ -38,7 +37,7 @@ export default function CalendarPage() {
         }
         return undefined
     })
-    const [clients, setClients] = useState<{ id: string; display_name: string | null }[]>([])
+    const [clients, setClients] = useState<{ id: string; display_name: string | null; past_submission_days: number; future_submission_days: number }[]>([])
     const [selectedVideo, setSelectedVideo] = useState<string | null>(null)
 
     // Determine whose rules to fetch: selected user for admin, or self for client
@@ -49,7 +48,6 @@ export default function CalendarPage() {
     const { workouts, loading, refetch, deleteWorkout, updateWorkoutStatus } = useWorkoutHistory(selectedClientId)
     const [selectedDate, setSelectedDate] = useState<Date>(new Date())
     const [currentMonth, setCurrentMonth] = useState<Date>(new Date())
-    const [isUploadModalOpen, setIsUploadModalOpen] = useState(false)
     const [isDatePickerOpen, setIsDatePickerOpen] = useState(false)
 
     // 月変更ハンドラー（日付の同期付き）
@@ -110,7 +108,7 @@ export default function CalendarPage() {
             const fetchClients = async () => {
                 const { data, error } = await supabase
                     .from('profiles')
-                    .select('id, display_name')
+                    .select('id, display_name, past_submission_days, future_submission_days')
                     .eq('role', 'client')
                 if (!error && data) {
                     // Sort clients by display_name
@@ -124,13 +122,6 @@ export default function CalendarPage() {
         }
     }, [isAdmin])
 
-    // Filter workouts for the selected date
-    const selectedDateSubmissions = useMemo(() => {
-        return workouts.filter(s => {
-            if (!s.target_date) return false
-            return isSameDay(parseISO(s.target_date), selectedDate)
-        })
-    }, [workouts, selectedDate])
 
     // Generate mapping of dates to their status indicators
     const dayStatusMap = useMemo(() => {
@@ -176,10 +167,7 @@ export default function CalendarPage() {
         return map
     }, [workouts])
 
-    const handlePlusClick = (date: Date) => {
-        setSelectedDate(date)
-        setIsUploadModalOpen(true)
-    }
+
 
     // 効果的な提出項目を取得するヘルパー関数
     const getEffectiveSubmissionItems = (date: Date) => {
@@ -334,24 +322,21 @@ export default function CalendarPage() {
                                 const isAllApproved = successCount >= totalItems && !st?.hasFail
                                 const isComplete = submittedCount >= totalItems
 
-                                // Show Plus if:
-                                // 1. NOT complete (can still submit)
-                                // 2. NOT viewing another client's calendar (admin mode)
-                                // 3. IS a target day
-                                // 4. Within allowed date range based on profile settings
+                                // 投稿可能範囲の計算
                                 const today = startOfDay(new Date())
                                 const dateStart = startOfDay(date)
-                                const daysDiff = differenceInDays(dateStart, today) // positive = future, negative = past
-
-                                const pastAllowed = profile?.past_submission_days ?? 0
-                                const futureAllowed = profile?.future_submission_days ?? 0
-
+                                const daysDiff = differenceInDays(dateStart, today)
+                                // 管理者がクライアントを選択した場合は、そのクライアントの投稿制限を使用
+                                const selectedClientProfile = selectedClientId ? clients.find(c => c.id === selectedClientId) : null
+                                const pastAllowed = selectedClientProfile?.past_submission_days ?? profile?.past_submission_days ?? 0
+                                const futureAllowed = selectedClientProfile?.future_submission_days ?? profile?.future_submission_days ?? 0
                                 const isWithinAllowedRange =
-                                    daysDiff === 0 || // Today is always allowed
-                                    (daysDiff > 0 && daysDiff <= futureAllowed) || // Future days
-                                    (daysDiff < 0 && Math.abs(daysDiff) <= pastAllowed) // Past days
+                                    daysDiff === 0 ||
+                                    (daysDiff > 0 && daysDiff <= futureAllowed) ||
+                                    (daysDiff < 0 && Math.abs(daysDiff) <= pastAllowed)
 
-                                const showPlus = isWithinAllowedRange && (!isComplete) && !selectedClientId && isTargetDay
+                                // カウント・期限・投稿UIの表示（統一）
+                                const showInfo = isWithinAllowedRange && isTargetDay
 
                                 return (
                                     <div className="relative flex flex-col items-center justify-start w-full min-h-[95px] sm:min-h-[105px] pt-1 pb-1 transition-colors hover:bg-muted/10 font-sans">
@@ -367,7 +352,7 @@ export default function CalendarPage() {
 
                                         <div className="flex flex-col items-center justify-center w-full min-h-[28px] relative">
                                             {/* Status Indicators (Green/Yellow only - Red is replaced by rejection stamp) */}
-                                            {!showPlus && st?.hasSubmission && !st.hasFail && (
+                                            {st?.hasSubmission && !st.hasFail && (
                                                 <div className="flex flex-wrap justify-center gap-0.5 mb-1">
                                                     {isComplete && <div className="w-1.5 h-1.5 rounded-full bg-green-500 shadow-sm" />}
                                                     {!isComplete && <div className="w-1.5 h-1.5 rounded-full bg-yellow-400 shadow-sm" />}
@@ -394,36 +379,31 @@ export default function CalendarPage() {
                                             )}
                                         </div>
 
-                                        {/* Plus Button */}
-                                        {showPlus && (
-                                            <button
-                                                type="button"
-                                                className="w-7 h-7 rounded-full bg-muted/90 text-muted-foreground flex items-center justify-center hover:bg-primary hover:text-primary-foreground transition-all border border-background shadow-xs hover:scale-110 active:scale-95"
-                                                onClick={(e) => {
-                                                    e.preventDefault()
-                                                    e.stopPropagation()
-                                                    handlePlusClick(date)
-                                                }}
-                                            >
-                                                <Plus className="w-4 h-4" />
-                                            </button>
-                                        )}
 
-                                        {/* Bottom Content: Progress & Deadline (Pushed to bottom only if space permits, otherwise flows) */}
+                                        {/* Bottom Content: Progress & Deadline (提出対象日に表示) or 休息日表示 */}
                                         <div className="mt-auto w-full px-0.5 flex flex-col gap-0.5 items-center justify-end">
-                                            {/* Progress Indicator */}
-                                            {effectiveItems.length > 0 && isTargetDay && (
-                                                <div className={`text-[9px] font-bold flex items-center justify-center gap-0.5 leading-none ${isComplete ? 'text-green-600' : 'text-orange-500'}`}>
-                                                    <span>{submittedCount}/{totalItems}</span>
+                                            {!isTargetDay ? (
+                                                /* 休息日表示 */
+                                                <div className="text-[10px] font-bold text-muted-foreground/60 leading-none pb-0.5">
+                                                    休
                                                 </div>
-                                            )}
+                                            ) : (
+                                                <>
+                                                    {/* Progress Indicator */}
+                                                    {effectiveItems.length > 0 && showInfo && (
+                                                        <div className={`text-[9px] font-bold flex items-center justify-center gap-0.5 leading-none ${isComplete ? 'text-green-600' : 'text-orange-500'}`}>
+                                                            <span>{submittedCount}/{totalItems}</span>
+                                                        </div>
+                                                    )}
 
-                                            {/* Deadline */}
-                                            {deadlineRule && isTargetDay && (
-                                                <div className="text-[9px] text-muted-foreground flex items-center justify-center gap-0.5 opacity-80 whitespace-nowrap leading-none pb-0.5">
-                                                    <Clock className="w-2.5 h-2.5 shrink-0" />
-                                                    <span>~{deadlineRule}</span>
-                                                </div>
+                                                    {/* Deadline */}
+                                                    {deadlineRule && showInfo && (
+                                                        <div className="text-[9px] text-muted-foreground flex items-center justify-center gap-0.5 opacity-80 whitespace-nowrap leading-none pb-0.5">
+                                                            <Clock className="w-2.5 h-2.5 shrink-0" />
+                                                            <span>~{deadlineRule}</span>
+                                                        </div>
+                                                    )}
+                                                </>
                                             )}
                                         </div>
                                     </div>
@@ -443,36 +423,21 @@ export default function CalendarPage() {
                 onUpdateStatus={updateWorkoutStatus}
                 onPlay={(key: string) => setSelectedVideo(getR2PublicUrl(key))}
                 submissionItems={submissionItems}
+                onUploadSuccess={() => refetch(true)}
+                isViewingOtherUser={false}
+                pastAllowed={(() => {
+                    const clientProfile = selectedClientId ? clients.find(c => c.id === selectedClientId) : null
+                    return clientProfile?.past_submission_days ?? profile?.past_submission_days ?? 0
+                })()}
+                futureAllowed={(() => {
+                    const clientProfile = selectedClientId ? clients.find(c => c.id === selectedClientId) : null
+                    return clientProfile?.future_submission_days ?? profile?.future_submission_days ?? 0
+                })()}
+                isRestDay={(() => {
+                    const targetDayRule = getRuleForDate(selectedDate, 'target_day')
+                    return targetDayRule !== null && targetDayRule !== 'true'
+                })()}
             />
-
-            {
-                !selectedClientId && (
-                    <Button
-                        onClick={() => handlePlusClick(new Date())}
-                        className="fixed bottom-6 right-6 w-14 h-14 rounded-full shadow-2xl bg-primary hover:bg-primary/90 text-primary-foreground z-[100] p-0 flex items-center justify-center border-2 border-background"
-                    >
-                        <Plus className="w-8 h-8" />
-                    </Button>
-                )
-            }
-
-            {
-                isUploadModalOpen && (
-                    <UploadModal
-                        onClose={() => {
-                            setIsUploadModalOpen(false)
-                        }}
-                        onSuccess={() => refetch(true)}
-                        targetDate={selectedDate}
-                        items={getEffectiveSubmissionItems(selectedDate)}
-                        completedSubmissions={selectedDateSubmissions.map(s => ({
-                            id: s.id,
-                            item_id: s.submission_item_id,
-                            file_name: (s as any).file_name || null // Cast as any because type might not be updated in IDE yet
-                        }))}
-                    />
-                )
-            }
 
             <VideoPlayerModal
                 videoUrl={selectedVideo}
