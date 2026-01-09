@@ -70,7 +70,7 @@ export interface Database {
                     thumbnail_url: string | null
                     duration: number | null
                     comment_text: string | null
-                    status: 'success' | 'fail' | 'excused'
+                    status: 'success' | 'fail' | 'excused' | null
                     target_date: string | null
                     submission_item_id: number | null
                     created_at: string
@@ -85,7 +85,7 @@ export interface Database {
                     thumbnail_url?: string | null
                     duration?: number | null
                     comment_text?: string | null
-                    status?: 'success' | 'fail' | 'excused'
+                    status?: 'success' | 'fail' | 'excused' | null
                     target_date?: string | null
                     submission_item_id?: number | null
                     created_at?: string
@@ -99,7 +99,7 @@ export interface Database {
                     thumbnail_url?: string | null
                     duration?: number | null
                     comment_text?: string | null
-                    status?: 'success' | 'fail' | 'excused'
+                    status?: 'success' | 'fail' | 'excused' | null
                     target_date?: string | null
                     submission_item_id?: number | null
                     created_at?: string

@@ -366,15 +366,11 @@ export default function CalendarPage() {
                                         </div>
 
                                         <div className="flex flex-col items-center justify-center w-full min-h-[28px] relative">
-                                            {/* Status Indicators (Always visible when submitted) */}
-                                            {!showPlus && st?.hasSubmission && (
+                                            {/* Status Indicators (Green/Yellow only - Red is replaced by rejection stamp) */}
+                                            {!showPlus && st?.hasSubmission && !st.hasFail && (
                                                 <div className="flex flex-wrap justify-center gap-0.5 mb-1">
-                                                    {st.hasFail ? <div className="w-1.5 h-1.5 rounded-full bg-red-500 shadow-sm" /> : (
-                                                        <>
-                                                            {isComplete && <div className="w-1.5 h-1.5 rounded-full bg-green-500 shadow-sm" />}
-                                                            {!isComplete && <div className="w-1.5 h-1.5 rounded-full bg-yellow-400 shadow-sm" />}
-                                                        </>
-                                                    )}
+                                                    {isComplete && <div className="w-1.5 h-1.5 rounded-full bg-green-500 shadow-sm" />}
+                                                    {!isComplete && <div className="w-1.5 h-1.5 rounded-full bg-yellow-400 shadow-sm" />}
                                                 </div>
                                             )}
 
