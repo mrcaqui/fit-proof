@@ -46,7 +46,7 @@ export default function CalendarPage() {
     const { getRuleForDate, loading: _rulesLoading } = useSubmissionRules(targetUserId)
     const { items: submissionItems } = useSubmissionItems(targetUserId)
 
-    const { workouts, loading, refetch, deleteWorkout } = useWorkoutHistory(selectedClientId)
+    const { workouts, loading, refetch, deleteWorkout, updateWorkoutStatus } = useWorkoutHistory(selectedClientId)
     const [selectedDate, setSelectedDate] = useState<Date>(new Date())
     const [currentMonth, setCurrentMonth] = useState<Date>(new Date())
     const [isUploadModalOpen, setIsUploadModalOpen] = useState(false)
@@ -162,6 +162,9 @@ export default function CalendarPage() {
             map[key].hasSuccess ||= s.status === "success"
             map[key].hasFail ||= s.status === "fail"
             map[key].hasComment ||= false // TODO
+
+            // 却下がある場合は、他がどうあれその日は「却下あり」
+            // 日付別の承認状態を管理するために、全項目が成功しているかも後で重要になる
 
             // 同じ項目ID（nullを含む）の投稿がまだカウントされていない場合のみカウント
             if (!map[key].submittedItemIds.has(s.submission_item_id)) {
@@ -316,6 +319,19 @@ export default function CalendarPage() {
                                 const effectiveItems = getEffectiveSubmissionItems(date)
 
                                 const totalItems = effectiveItems.length > 0 ? effectiveItems.length : 1
+
+                                // 全ての動画が承認済みかどうか
+                                // submissions の中からこの日付かつ success のものを数える
+                                const successCount = (workouts || []).filter(s =>
+                                    s.target_date &&
+                                    isSameDay(parseISO(s.target_date), date) &&
+                                    s.status === 'success'
+                                ).reduce((acc, cur) => {
+                                    // 重複カウント防止（WorkoutCard側と同じロジックにする必要があるが、ここでは項目IDベースで数える）
+                                    return acc.add(cur.submission_item_id), acc
+                                }, new Set<number | null>()).size
+
+                                const isAllApproved = successCount >= totalItems && !st?.hasFail
                                 const isComplete = submittedCount >= totalItems
 
                                 // Show Plus if:
@@ -349,32 +365,53 @@ export default function CalendarPage() {
                                             {date.getDate()}
                                         </div>
 
-                                        {/* Middle Content: Status & Action (Packed closer to date) */}
-                                        <div className="flex flex-row items-center justify-center gap-1 w-full z-20 min-h-[28px]">
-                                            {/* Status Indicators - Hide if Plus button is visible to prevent clutter */}
-                                            {!showPlus && (st?.hasFail || (isComplete && st?.hasSubmission) || (!st?.hasFail && !isComplete && st?.hasSubmission)) && (
-                                                <div className="flex flex-wrap justify-center gap-0.5">
-                                                    {st?.hasFail && <div className="w-1.5 h-1.5 rounded-full bg-red-500 shadow-sm" />}
-                                                    {!st?.hasFail && isComplete && st?.hasSubmission && <div className="w-1.5 h-1.5 rounded-full bg-green-500 shadow-sm" />}
-                                                    {!st?.hasFail && !isComplete && st?.hasSubmission && <div className="w-1.5 h-1.5 rounded-full bg-yellow-400 shadow-sm" />}
+                                        <div className="flex flex-col items-center justify-center w-full min-h-[28px] relative">
+                                            {/* Status Indicators (Always visible when submitted) */}
+                                            {!showPlus && st?.hasSubmission && (
+                                                <div className="flex flex-wrap justify-center gap-0.5 mb-1">
+                                                    {st.hasFail ? <div className="w-1.5 h-1.5 rounded-full bg-red-500 shadow-sm" /> : (
+                                                        <>
+                                                            {isComplete && <div className="w-1.5 h-1.5 rounded-full bg-green-500 shadow-sm" />}
+                                                            {!isComplete && <div className="w-1.5 h-1.5 rounded-full bg-yellow-400 shadow-sm" />}
+                                                        </>
+                                                    )}
                                                 </div>
                                             )}
 
-                                            {/* Plus Button */}
-                                            {showPlus && (
-                                                <button
-                                                    type="button"
-                                                    className="w-7 h-7 rounded-full bg-muted/90 text-muted-foreground flex items-center justify-center hover:bg-primary hover:text-primary-foreground transition-all border border-background shadow-xs hover:scale-110 active:scale-95"
-                                                    onClick={(e) => {
-                                                        e.preventDefault()
-                                                        e.stopPropagation()
-                                                        handlePlusClick(date)
-                                                    }}
-                                                >
-                                                    <Plus className="w-4 h-4" />
-                                                </button>
+                                            {/* Stamp Overlay (Absoluted over everything) */}
+                                            {st?.hasSubmission && (
+                                                <div className="absolute inset-0 z-30 flex items-center justify-center pointer-events-none">
+                                                    {st.hasFail ? (
+                                                        <img
+                                                            src="/assets/stamps/yousyuusei-120.png"
+                                                            alt="Rejected"
+                                                            className="w-10 h-10 object-contain drop-shadow-md opacity-85 translate-y-2"
+                                                        />
+                                                    ) : isAllApproved ? (
+                                                        <img
+                                                            src="/assets/stamps/azasu-120.png"
+                                                            alt="Approved"
+                                                            className="w-9 h-9 object-contain drop-shadow-md opacity-85 rotate-[-5deg] translate-y-2"
+                                                        />
+                                                    ) : null}
+                                                </div>
                                             )}
                                         </div>
+
+                                        {/* Plus Button */}
+                                        {showPlus && (
+                                            <button
+                                                type="button"
+                                                className="w-7 h-7 rounded-full bg-muted/90 text-muted-foreground flex items-center justify-center hover:bg-primary hover:text-primary-foreground transition-all border border-background shadow-xs hover:scale-110 active:scale-95"
+                                                onClick={(e) => {
+                                                    e.preventDefault()
+                                                    e.stopPropagation()
+                                                    handlePlusClick(date)
+                                                }}
+                                            >
+                                                <Plus className="w-4 h-4" />
+                                            </button>
+                                        )}
 
                                         {/* Bottom Content: Progress & Deadline (Pushed to bottom only if space permits, otherwise flows) */}
                                         <div className="mt-auto w-full px-0.5 flex flex-col gap-0.5 items-center justify-end">
@@ -407,39 +444,44 @@ export default function CalendarPage() {
                 workouts={workouts}
                 onDelete={deleteWorkout}
                 isAdmin={isAdmin}
+                onUpdateStatus={updateWorkoutStatus}
                 onPlay={(key: string) => setSelectedVideo(getR2PublicUrl(key))}
                 submissionItems={submissionItems}
             />
 
-            {!selectedClientId && (
-                <Button
-                    onClick={() => handlePlusClick(new Date())}
-                    className="fixed bottom-6 right-6 w-14 h-14 rounded-full shadow-2xl bg-primary hover:bg-primary/90 text-primary-foreground z-[100] p-0 flex items-center justify-center border-2 border-background"
-                >
-                    <Plus className="w-8 h-8" />
-                </Button>
-            )}
+            {
+                !selectedClientId && (
+                    <Button
+                        onClick={() => handlePlusClick(new Date())}
+                        className="fixed bottom-6 right-6 w-14 h-14 rounded-full shadow-2xl bg-primary hover:bg-primary/90 text-primary-foreground z-[100] p-0 flex items-center justify-center border-2 border-background"
+                    >
+                        <Plus className="w-8 h-8" />
+                    </Button>
+                )
+            }
 
-            {isUploadModalOpen && (
-                <UploadModal
-                    onClose={() => {
-                        setIsUploadModalOpen(false)
-                    }}
-                    onSuccess={() => refetch(true)}
-                    targetDate={selectedDate}
-                    items={getEffectiveSubmissionItems(selectedDate)}
-                    completedSubmissions={selectedDateSubmissions.map(s => ({
-                        id: s.id,
-                        item_id: s.submission_item_id,
-                        file_name: (s as any).file_name || null // Cast as any because type might not be updated in IDE yet
-                    }))}
-                />
-            )}
+            {
+                isUploadModalOpen && (
+                    <UploadModal
+                        onClose={() => {
+                            setIsUploadModalOpen(false)
+                        }}
+                        onSuccess={() => refetch(true)}
+                        targetDate={selectedDate}
+                        items={getEffectiveSubmissionItems(selectedDate)}
+                        completedSubmissions={selectedDateSubmissions.map(s => ({
+                            id: s.id,
+                            item_id: s.submission_item_id,
+                            file_name: (s as any).file_name || null // Cast as any because type might not be updated in IDE yet
+                        }))}
+                    />
+                )
+            }
 
             <VideoPlayerModal
                 videoUrl={selectedVideo}
                 onClose={() => setSelectedVideo(null)}
             />
-        </div>
+        </div >
     )
 }

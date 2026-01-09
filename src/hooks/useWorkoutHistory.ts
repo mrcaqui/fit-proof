@@ -59,11 +59,14 @@ export function useWorkoutHistory(targetUserId?: string) {
     }
 
     // Placeholder for status update logic (Approve / Reject)
-    const updateWorkoutStatus = async (id: number, status: 'success' | 'fail' | 'excused') => {
+    const updateWorkoutStatus = async (id: number, status: 'success' | 'fail' | 'excused' | null) => {
         try {
-            const client = supabase.from('submissions' as any) as any
-            const { error: dbError } = await client
-                .update({ status })
+            const { error: dbError } = await supabase
+                .from('submissions')
+                .update({
+                    status,
+                    reviewed_at: status ? new Date().toISOString() : null
+                } as any)
                 .eq('id', id)
 
             if (dbError) throw dbError

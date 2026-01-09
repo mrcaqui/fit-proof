@@ -169,7 +169,7 @@ export function UploadModal({ targetDate, onClose, onSuccess, items, completedSu
                     type: 'video' as const,
                     r2_key: key,
                     thumbnail_url: state.thumbnail || null,
-                    status: 'success' as const,
+                    status: null,
                     target_date: targetDateStr,
                     submission_item_id: normalizedItemId,
                     file_name: state.file.name,

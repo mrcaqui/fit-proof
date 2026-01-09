@@ -75,6 +75,7 @@ export interface Database {
                     submission_item_id: number | null
                     created_at: string
                     file_name: string | null
+                    reviewed_at: string | null
                 }
                 Insert: {
                     id?: number
@@ -88,6 +89,7 @@ export interface Database {
                     target_date?: string | null
                     submission_item_id?: number | null
                     created_at?: string
+                    reviewed_at?: string | null
                 }
                 Update: {
                     id?: number
@@ -101,6 +103,7 @@ export interface Database {
                     target_date?: string | null
                     submission_item_id?: number | null
                     created_at?: string
+                    reviewed_at?: string | null
                 }
             }
             submission_rules: {

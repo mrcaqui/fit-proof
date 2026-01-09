@@ -17,6 +17,7 @@ interface SwipeableWorkoutViewProps {
   onDelete?: (id: number, r2Key: string | null) => Promise<any>
   isAdmin?: boolean
   onPlay?: (key: string) => void
+  onUpdateStatus?: (id: number, status: 'success' | 'fail' | 'excused' | null) => Promise<any>
   submissionItems?: SubmissionItem[]
 }
 
@@ -27,6 +28,7 @@ export function SwipeableWorkoutView({
   onDelete,
   isAdmin,
   onPlay,
+  onUpdateStatus,
   submissionItems = []
 }: SwipeableWorkoutViewProps) {
   const CARD_WIDTH_PERCENT = 85
@@ -159,6 +161,7 @@ export function SwipeableWorkoutView({
                   onDelete={isMain ? onDelete : undefined}
                   isAdmin={isAdmin}
                   onPlay={isMain ? onPlay : undefined}
+                  onUpdateStatus={isMain ? onUpdateStatus : undefined}
                   itemName={item?.name}
                 />
               )
