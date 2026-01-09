@@ -7,7 +7,9 @@ import {
     Clock,
     Trash2,
     Loader2,
-    RotateCcw
+    RotateCcw,
+    MessageSquare,
+    Send
 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Database } from '@/types/database.types'
@@ -27,10 +29,14 @@ interface WorkoutCardProps {
     onPlay?: (key: string) => void
     itemName?: string
     onUpdateStatus?: (id: number, status: 'success' | 'fail' | 'excused' | null) => Promise<any>
+    onAddComment?: (submissionId: number, content: string) => Promise<any>
+    onMarkAsRead?: (commentId: string) => Promise<any>
 }
 
-export function WorkoutCard({ submission, onDelete, isAdmin, onPlay, itemName, onUpdateStatus }: WorkoutCardProps) {
+export function WorkoutCard({ submission, onDelete, isAdmin, onPlay, itemName, onUpdateStatus, onAddComment, onMarkAsRead }: WorkoutCardProps) {
     const [isDeleting, setIsDeleting] = useState(false)
+    const [commentText, setCommentText] = useState((submission as any).admin_comments?.[0]?.content || '')
+    const [isCommenting, setIsCommenting] = useState(false)
 
     const reviewedAtStr = submission.reviewed_at
         ? format(parseISO(submission.reviewed_at), 'MM/dd HH:mm')
@@ -39,6 +45,23 @@ export function WorkoutCard({ submission, onDelete, isAdmin, onPlay, itemName, o
     const handleStatusUpdate = async (status: 'success' | 'fail' | 'excused' | null) => {
         if (!onUpdateStatus) return
         await onUpdateStatus(submission.id, status)
+    }
+
+    const handleAddComment = async () => {
+        if (!onAddComment || !commentText.trim()) return
+        setIsCommenting(true)
+        try {
+            await onAddComment(submission.id, commentText)
+        } finally {
+            setIsCommenting(false)
+        }
+    }
+
+    const handleReadComment = async () => {
+        const comment = (submission as any).admin_comments?.[0]
+        if (comment && !comment.read_at && onMarkAsRead) {
+            await onMarkAsRead(comment.id)
+        }
     }
 
     const timeStr = submission.created_at
@@ -54,6 +77,7 @@ export function WorkoutCard({ submission, onDelete, isAdmin, onPlay, itemName, o
 
     const fileName = (submission as any).file_name
     const duration = submission.duration
+    const adminComment = (submission as any).admin_comments?.[0]
 
     const handleDelete = async (e: React.MouseEvent) => {
         e.preventDefault()
@@ -222,7 +246,85 @@ export function WorkoutCard({ submission, onDelete, isAdmin, onPlay, itemName, o
                                         >
                                             <RotateCcw className="w-3.5 h-3.5 text-muted-foreground" />
                                         </Button>
+
+                                        {/* コメントボタン (管理者) */}
+                                        <Popover>
+                                            <PopoverTrigger asChild>
+                                                <Button
+                                                    size="icon"
+                                                    variant="outline"
+                                                    className={`h-6 w-6 border-muted-foreground/20 hover:bg-blue-50 relative ${adminComment ? 'bg-blue-50 border-blue-200' : ''}`}
+                                                    title="コメント"
+                                                >
+                                                    <MessageSquare className={`w-3.5 h-3.5 ${adminComment ? 'text-blue-600' : 'text-muted-foreground'}`} />
+                                                    {adminComment && !adminComment.read_at && (
+                                                        <span className="absolute -top-1 -right-1 w-2 h-2 bg-orange-500 rounded-full border border-white" />
+                                                    )}
+                                                    {adminComment && adminComment.read_at && (
+                                                        <CheckCircle2 className="absolute -top-1 -right-1 w-2.5 h-2.5 text-blue-600 bg-white rounded-full" />
+                                                    )}
+                                                </Button>
+                                            </PopoverTrigger>
+                                            <PopoverContent side="top" className="w-80 p-3 bg-white shadow-xl z-[200]">
+                                                <div className="space-y-3">
+                                                    <h5 className="text-xs font-bold text-slate-500 uppercase tracking-wider">管理者コメント</h5>
+                                                    <textarea
+                                                        className="w-full text-sm p-2 border rounded-md focus:outline-none focus:ring-1 focus:ring-primary min-h-[80px] bg-slate-50"
+                                                        placeholder="フィードバックを入力..."
+                                                        value={commentText}
+                                                        onChange={(e) => setCommentText(e.target.value)}
+                                                    />
+                                                    <div className="flex justify-between items-center">
+                                                        <span className="text-[10px] text-muted-foreground">
+                                                            {adminComment?.read_at ? `既読: ${format(parseISO(adminComment.read_at), 'MM/dd HH:mm')}` : '未読'}
+                                                        </span>
+                                                        <Button
+                                                            size="sm"
+                                                            className="h-8 gap-1.5"
+                                                            onClick={handleAddComment}
+                                                            disabled={isCommenting || !commentText.trim()}
+                                                        >
+                                                            {isCommenting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
+                                                            保存
+                                                        </Button>
+                                                    </div>
+                                                </div>
+                                            </PopoverContent>
+                                        </Popover>
                                     </div>
+                                )}
+
+                                {/* Admin Comment Indicator (Client side) */}
+                                {!isAdmin && adminComment && (
+                                    <Popover onOpenChange={(open) => open && handleReadComment()}>
+                                        <PopoverTrigger asChild>
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                className="h-6 gap-1 px-1.5 border-orange-200 bg-orange-50 hover:bg-orange-100 text-orange-700 text-[10px] font-bold"
+                                            >
+                                                <MessageSquare className="w-3 h-3" />
+                                                コメントあり
+                                                {!adminComment.read_at && (
+                                                    <span className="w-1.5 h-1.5 bg-orange-500 rounded-full animate-pulse" />
+                                                )}
+                                            </Button>
+                                        </PopoverTrigger>
+                                        <PopoverContent side="top" className="w-72 p-3 bg-white shadow-xl z-[200]">
+                                            <div className="space-y-2">
+                                                <div className="flex items-center gap-2 mb-1">
+                                                    <MessageSquare className="w-3.5 h-3.5 text-orange-600" />
+                                                    <h5 className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">管理者からのメッセージ</h5>
+                                                </div>
+                                                <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap bg-slate-50 p-2.5 rounded-lg border border-slate-100">
+                                                    {adminComment.content}
+                                                </p>
+                                                <div className="text-[9px] text-muted-foreground text-right pt-1">
+                                                    {format(parseISO(adminComment.created_at), 'yyyy/MM/dd HH:mm')}
+                                                </div>
+                                            </div>
+                                        </PopoverContent>
+                                    </Popover>
                                 )}
 
                                 {/* Status indicator for non-admin view */}

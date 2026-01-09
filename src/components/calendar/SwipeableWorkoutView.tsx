@@ -19,6 +19,8 @@ interface SwipeableWorkoutViewProps {
   isAdmin?: boolean
   onPlay?: (key: string) => void
   onUpdateStatus?: (id: number, status: 'success' | 'fail' | 'excused' | null) => Promise<any>
+  onAddComment?: (submissionId: number, content: string) => Promise<any>
+  onMarkAsRead?: (commentId: string) => Promise<any>
   submissionItems?: SubmissionItem[]
   onUploadSuccess?: () => void
   isViewingOtherUser?: boolean
@@ -35,6 +37,8 @@ export function SwipeableWorkoutView({
   isAdmin,
   onPlay,
   onUpdateStatus,
+  onAddComment,
+  onMarkAsRead,
   submissionItems = [],
   onUploadSuccess,
   isViewingOtherUser = false,
@@ -208,6 +212,8 @@ export function SwipeableWorkoutView({
                     isAdmin={isAdmin}
                     onPlay={isMain ? onPlay : undefined}
                     onUpdateStatus={isMain ? onUpdateStatus : undefined}
+                    onAddComment={isMain ? onAddComment : undefined}
+                    onMarkAsRead={isMain ? onMarkAsRead : undefined}
                     itemName={item?.name}
                   />
                 )

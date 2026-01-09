@@ -141,6 +141,32 @@ export interface Database {
                     deleted_at?: string | null
                 }
             }
+            admin_comments: {
+                Row: {
+                    id: string
+                    submission_id: number
+                    admin_id: string
+                    content: string
+                    read_at: string | null
+                    created_at: string
+                }
+                Insert: {
+                    id?: string
+                    submission_id: number
+                    admin_id: string
+                    content: string
+                    read_at?: string | null
+                    created_at?: string
+                }
+                Update: {
+                    id?: string
+                    submission_id?: number
+                    admin_id?: string
+                    content?: string
+                    read_at?: string | null
+                    created_at?: string
+                }
+            }
         }
         Views: {
             [_ in never]: never

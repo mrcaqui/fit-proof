@@ -4,7 +4,9 @@ import { Database } from '@/types/database.types'
 import { useAuth } from '@/context/AuthContext'
 import { deleteR2Object } from '@/lib/r2'
 
-type Submission = Database['public']['Tables']['submissions']['Row']
+type Submission = Database['public']['Tables']['submissions']['Row'] & {
+    admin_comments?: Database['public']['Tables']['admin_comments']['Row'][]
+}
 
 export function useWorkoutHistory(targetUserId?: string) {
     const { user } = useAuth()
@@ -18,15 +20,42 @@ export function useWorkoutHistory(targetUserId?: string) {
 
         try {
             if (!silent) setLoading(true)
-            const { data, error } = await supabase
+
+            // 投稿を取得
+            const { data: submissionsData, error: submissionsError } = await supabase
                 .from('submissions')
                 .select('*')
                 .eq('user_id', effectiveUserId)
                 .order('target_date', { ascending: false })
                 .order('created_at', { ascending: false })
 
-            if (error) throw error
-            setWorkouts(data || [])
+            if (submissionsError) throw submissionsError
+
+            // このユーザーの投稿ID一覧を取得
+            const submissionIds = ((submissionsData || []) as any[]).map(s => s.id)
+
+            // コメントを別途取得
+            let commentsData: any[] = []
+            if (submissionIds.length > 0) {
+                const { data: comments, error: commentsError } = await (supabase
+                    .from('admin_comments') as any)
+                    .select('*')
+                    .in('submission_id', submissionIds)
+
+                if (commentsError) {
+                    console.warn('Comments fetch error:', commentsError)
+                } else {
+                    commentsData = comments || []
+                }
+            }
+
+            // 投稿とコメントをマージ
+            const workoutsWithComments = ((submissionsData || []) as any[]).map(s => ({
+                ...s,
+                admin_comments: commentsData.filter(c => c.submission_id === s.id)
+            }))
+
+            setWorkouts(workoutsWithComments)
         } catch (err: any) {
             setError(err.message)
         } finally {
@@ -79,6 +108,44 @@ export function useWorkoutHistory(targetUserId?: string) {
         }
     }
 
+    const addAdminComment = async (submissionId: number, content: string) => {
+        if (!user?.id) return { success: false }
+        try {
+            const { error: dbError } = await (supabase
+                .from('admin_comments') as any)
+                .upsert({
+                    submission_id: submissionId,
+                    admin_id: user.id,
+                    content,
+                    read_at: null
+                }, { onConflict: 'submission_id' })
+
+            if (dbError) throw dbError
+            await fetchWorkouts(true)
+            return { success: true }
+        } catch (err: any) {
+            console.error('Add comment failed:', err)
+            return { success: false, error: err.message }
+        }
+    }
+
+    const markCommentAsRead = async (commentId: string) => {
+        try {
+            const { error: dbError } = await (supabase
+                .from('admin_comments') as any)
+                .update({ read_at: new Date().toISOString() })
+                .eq('id', commentId)
+                .is('read_at', null)
+
+            if (dbError) throw dbError
+            await fetchWorkouts(true)
+            return { success: true }
+        } catch (err: any) {
+            console.error('Mark as read failed:', err)
+            return { success: false, error: err.message }
+        }
+    }
+
     useEffect(() => {
         fetchWorkouts()
 
@@ -86,25 +153,38 @@ export function useWorkoutHistory(targetUserId?: string) {
         if (!effectiveUserId) return
 
         // リアルタイム購読の設定
-        const channel = supabase
+        const submissionsChannel = supabase
             .channel(`submissions-changes-${effectiveUserId}`)
             .on(
                 'postgres_changes',
                 {
-                    event: '*', // INSERT, UPDATE, DELETE すべて
+                    event: '*',
                     schema: 'public',
                     table: 'submissions',
                     filter: `user_id=eq.${effectiveUserId}`
                 },
-                () => {
-                    // 変更があったらサイレントに再取得
-                    fetchWorkouts(true)
-                }
+                () => fetchWorkouts(true)
+            )
+            .subscribe()
+
+        const commentsChannel = supabase
+            .channel(`comments-changes-${effectiveUserId}`)
+            .on(
+                'postgres_changes',
+                {
+                    event: '*',
+                    schema: 'public',
+                    table: 'admin_comments'
+                    // クライアント側では submission_id によるフィルタリングが必要だが、
+                    // 全体を取得し直すのであれば、このユーザーに関連する全コメントの変更を検知する
+                },
+                () => fetchWorkouts(true)
             )
             .subscribe()
 
         return () => {
-            supabase.removeChannel(channel)
+            supabase.removeChannel(submissionsChannel)
+            supabase.removeChannel(commentsChannel)
         }
     }, [fetchWorkouts, targetUserId, user?.id])
 
@@ -114,6 +194,8 @@ export function useWorkoutHistory(targetUserId?: string) {
         error,
         refetch: fetchWorkouts,
         deleteWorkout,
-        updateWorkoutStatus
+        updateWorkoutStatus,
+        addAdminComment,
+        markCommentAsRead
     }
 }

@@ -4,7 +4,7 @@ import { useWorkoutHistory } from '@/hooks/useWorkoutHistory'
 import { format, isSameDay, parseISO, differenceInDays, startOfDay, addMonths, subMonths, isSameMonth, lastDayOfMonth } from 'date-fns'
 import { ja } from 'date-fns/locale'
 import { SwipeableWorkoutView } from '@/components/calendar/SwipeableWorkoutView'
-import { Clock, CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Clock, CalendarDays, ChevronLeft, ChevronRight, MessageSquare } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { useAuth } from '@/context/AuthContext'
@@ -45,7 +45,7 @@ export default function CalendarPage() {
     const { getRuleForDate, loading: _rulesLoading } = useSubmissionRules(targetUserId)
     const { items: submissionItems } = useSubmissionItems(targetUserId)
 
-    const { workouts, loading, refetch, deleteWorkout, updateWorkoutStatus } = useWorkoutHistory(selectedClientId)
+    const { workouts, loading, refetch, deleteWorkout, updateWorkoutStatus, addAdminComment, markCommentAsRead } = useWorkoutHistory(selectedClientId)
     const [selectedDate, setSelectedDate] = useState<Date>(new Date())
     const [currentMonth, setCurrentMonth] = useState<Date>(new Date())
     const [isDatePickerOpen, setIsDatePickerOpen] = useState(false)
@@ -129,7 +129,8 @@ export default function CalendarPage() {
             hasSubmission: boolean;
             hasSuccess: boolean;
             hasFail: boolean;
-            hasComment: boolean;
+            hasAdminComment: boolean;
+            hasUnreadComment: boolean;
             submittedCount: number;
             submittedItemIds: Set<number | null>; // 重複カウント防止用
         }> = {}
@@ -143,7 +144,8 @@ export default function CalendarPage() {
                     hasSubmission: false,
                     hasSuccess: false,
                     hasFail: false,
-                    hasComment: false,
+                    hasAdminComment: false,
+                    hasUnreadComment: false,
                     submittedCount: 0,
                     submittedItemIds: new Set()
                 }
@@ -152,7 +154,8 @@ export default function CalendarPage() {
             map[key].hasSubmission = true
             map[key].hasSuccess ||= s.status === "success"
             map[key].hasFail ||= s.status === "fail"
-            map[key].hasComment ||= false // TODO
+            map[key].hasAdminComment ||= (s as any).admin_comments?.length > 0
+            map[key].hasUnreadComment ||= (s as any).admin_comments?.some((c: any) => !c.read_at)
 
             // 却下がある場合は、他がどうあれその日は「却下あり」
             // 日付別の承認状態を管理するために、全項目が成功しているかも後で重要になる
@@ -350,6 +353,16 @@ export default function CalendarPage() {
                                             {date.getDate()}
                                         </div>
 
+                                        {/* Admin Comment Indicator (Calendar Cell Corner) */}
+                                        {st?.hasAdminComment && (
+                                            <div className="absolute top-1 right-1 z-20">
+                                                <MessageSquare className="w-2.5 h-2.5 text-orange-500 fill-orange-500/20" />
+                                                {st.hasUnreadComment && (
+                                                    <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 bg-orange-500 rounded-full animate-pulse" />
+                                                )}
+                                            </div>
+                                        )}
+
                                         <div className="flex flex-col items-center justify-center w-full min-h-[28px] relative">
                                             {/* Status Indicators (Green/Yellow only - Red is replaced by rejection stamp) */}
                                             {st?.hasSubmission && !st.hasFail && (
@@ -421,6 +434,8 @@ export default function CalendarPage() {
                 onDelete={deleteWorkout}
                 isAdmin={isAdmin}
                 onUpdateStatus={updateWorkoutStatus}
+                onAddComment={addAdminComment}
+                onMarkAsRead={markCommentAsRead}
                 onPlay={(key: string) => setSelectedVideo(getR2PublicUrl(key))}
                 submissionItems={submissionItems}
                 onUploadSuccess={() => refetch(true)}
