@@ -37,12 +37,12 @@ export default function CalendarPage() {
         }
         return undefined
     })
-    const [clients, setClients] = useState<{ id: string; display_name: string | null; past_submission_days: number; future_submission_days: number }[]>([])
+    const [clients, setClients] = useState<{ id: string; display_name: string | null; past_submission_days: number; future_submission_days: number; deadline_mode: 'none' | 'mark' | 'block' }[]>([])
     const [selectedVideo, setSelectedVideo] = useState<string | null>(null)
 
     // Determine whose rules to fetch: selected user for admin, or self for client
     const targetUserId = isAdmin ? (selectedClientId || user?.id) : user?.id
-    const { getRuleForDate, loading: _rulesLoading } = useSubmissionRules(targetUserId)
+    const { getRuleForDate, isDeadlinePassed, loading: _rulesLoading } = useSubmissionRules(targetUserId)
     const { items: submissionItems } = useSubmissionItems(targetUserId)
 
     const { workouts, loading, refetch, deleteWorkout, updateWorkoutStatus, addAdminComment, markCommentAsRead } = useWorkoutHistory(selectedClientId)
@@ -108,7 +108,7 @@ export default function CalendarPage() {
             const fetchClients = async () => {
                 const { data, error } = await supabase
                     .from('profiles')
-                    .select('id, display_name, past_submission_days, future_submission_days')
+                    .select('id, display_name, past_submission_days, future_submission_days, deadline_mode')
                     .eq('role', 'client')
                 if (!error && data) {
                     // Sort clients by display_name
@@ -451,6 +451,15 @@ export default function CalendarPage() {
                 isRestDay={(() => {
                     const targetDayRule = getRuleForDate(selectedDate, 'target_day')
                     return targetDayRule !== null && targetDayRule !== 'true'
+                })()}
+                isLate={(() => {
+                    // 期限超過チェックは当日のみ適用（過去・未来には適用しない）
+                    const isToday = isSameDay(selectedDate, new Date())
+                    return isToday && isDeadlinePassed(selectedDate)
+                })()}
+                deadlineMode={(() => {
+                    const clientProfile = selectedClientId ? clients.find(c => c.id === selectedClientId) : null
+                    return clientProfile?.deadline_mode ?? (profile as any)?.deadline_mode ?? 'none'
                 })()}
             />
 

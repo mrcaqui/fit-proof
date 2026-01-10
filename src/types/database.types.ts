@@ -18,6 +18,7 @@ export interface Database {
                     updated_at: string | null
                     past_submission_days: number
                     future_submission_days: number
+                    deadline_mode: 'none' | 'mark' | 'block'
                 }
                 Insert: {
                     id: string
@@ -27,6 +28,7 @@ export interface Database {
                     updated_at?: string | null
                     past_submission_days?: number
                     future_submission_days?: number
+                    deadline_mode?: 'none' | 'mark' | 'block'
                 }
                 Update: {
                     id?: string
@@ -36,6 +38,7 @@ export interface Database {
                     updated_at?: string | null
                     past_submission_days?: number
                     future_submission_days?: number
+                    deadline_mode?: 'none' | 'mark' | 'block'
                 }
             }
             submission_items: {
@@ -76,6 +79,7 @@ export interface Database {
                     created_at: string
                     file_name: string | null
                     reviewed_at: string | null
+                    is_late: boolean
                 }
                 Insert: {
                     id?: number
@@ -90,6 +94,7 @@ export interface Database {
                     submission_item_id?: number | null
                     created_at?: string
                     reviewed_at?: string | null
+                    is_late?: boolean
                 }
                 Update: {
                     id?: number
@@ -104,6 +109,7 @@ export interface Database {
                     submission_item_id?: number | null
                     created_at?: string
                     reviewed_at?: string | null
+                    is_late?: boolean
                 }
             }
             submission_rules: {

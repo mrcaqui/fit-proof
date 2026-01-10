@@ -27,6 +27,8 @@ interface SwipeableWorkoutViewProps {
   pastAllowed?: number
   futureAllowed?: number
   isRestDay?: boolean
+  isLate?: boolean
+  deadlineMode?: 'none' | 'mark' | 'block'
 }
 
 export function SwipeableWorkoutView({
@@ -44,7 +46,9 @@ export function SwipeableWorkoutView({
   isViewingOtherUser = false,
   pastAllowed = 0,
   futureAllowed = 0,
-  isRestDay = false
+  isRestDay = false,
+  isLate = false,
+  deadlineMode = 'none'
 }: SwipeableWorkoutViewProps) {
   const CARD_WIDTH_PERCENT = 85
   const PEEK_WIDTH_PERCENT = (100 - CARD_WIDTH_PERCENT) / 2
@@ -215,6 +219,7 @@ export function SwipeableWorkoutView({
                     onAddComment={isMain ? onAddComment : undefined}
                     onMarkAsRead={isMain ? onMarkAsRead : undefined}
                     itemName={item?.name}
+                    deadlineMode={deadlineMode}
                   />
                 )
               })}
@@ -225,6 +230,8 @@ export function SwipeableWorkoutView({
                   item={item}
                   targetDate={date}
                   onSuccess={onUploadSuccess}
+                  isLate={isLate}
+                  deadlineMode={deadlineMode}
                 />
               ))}
             </div>

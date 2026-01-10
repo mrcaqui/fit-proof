@@ -108,5 +108,25 @@ export function useSubmissionRules(clientId?: string) {
         return null
     }, [rules])
 
-    return { rules, loading, error, refetch: fetchRules, getRuleForDate }
+    // 期限超過判定関数: 指定日の期限時間を過ぎているかどうかを判定
+    const isDeadlinePassed = useCallback((targetDate: Date): boolean => {
+        const deadlineTime = getRuleForDate(targetDate, 'deadline')
+        if (!deadlineTime) {
+            // 期限が設定されていない場合は超過とみなさない
+            return false
+        }
+
+        // 期限時間をパース (例: "19:00")
+        const [hours, minutes] = deadlineTime.split(':').map(Number)
+
+        // targetDateの期限時刻を作成
+        const deadlineDateTime = new Date(targetDate)
+        deadlineDateTime.setHours(hours, minutes, 0, 0)
+
+        // 現在時刻と比較
+        const now = new Date()
+        return now > deadlineDateTime
+    }, [getRuleForDate])
+
+    return { rules, loading, error, refetch: fetchRules, getRuleForDate, isDeadlinePassed }
 }

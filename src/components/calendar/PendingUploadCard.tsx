@@ -20,10 +20,13 @@ interface PendingUploadCardProps {
     item: SubmissionItem
     targetDate: Date
     onSuccess?: () => void
+    isLate?: boolean
+    deadlineMode?: 'none' | 'mark' | 'block'
 }
 
-export function PendingUploadCard({ item, targetDate, onSuccess }: PendingUploadCardProps) {
+export function PendingUploadCard({ item, targetDate, onSuccess, isLate = false, deadlineMode = 'none' }: PendingUploadCardProps) {
     const { user } = useAuth()
+    const isBlocked = deadlineMode === 'block' && isLate
     const fileInputRef = useRef<HTMLInputElement>(null)
     const [state, setState] = useState<{
         file: File | null
@@ -162,7 +165,8 @@ export function PendingUploadCard({ item, targetDate, onSuccess }: PendingUpload
                     target_date: targetDateStr,
                     submission_item_id: item.id,
                     file_name: state.file.name,
-                    duration: state.duration ? Math.round(state.duration) : null
+                    duration: state.duration ? Math.round(state.duration) : null,
+                    is_late: isLate
                 } as any)
 
             if (dbError) throw new Error('Failed to save submission record')
@@ -186,14 +190,21 @@ export function PendingUploadCard({ item, targetDate, onSuccess }: PendingUpload
     }
 
     return (
-        <Card className="overflow-hidden border-2 border-dashed border-muted-foreground/20 shadow-sm bg-card/50 hover:border-primary/30 transition-all duration-200">
+        <Card className={`overflow-hidden border-2 border-dashed shadow-sm transition-all duration-200 ${isBlocked ? 'border-destructive/30 bg-destructive/5' : 'border-muted-foreground/20 bg-card/50 hover:border-primary/30'}`}>
             <CardContent className="p-3">
+                {/* ブロックモード時の警告 */}
+                {isBlocked && (
+                    <div className="flex items-center gap-2 text-destructive text-xs font-medium bg-destructive/10 p-2 rounded mb-2">
+                        <AlertCircle className="w-3 h-3 shrink-0" />
+                        <span>期限を過ぎたため、投稿できません</span>
+                    </div>
+                )}
                 <div className="flex items-center justify-between gap-2 mb-2">
                     <h4 className="font-bold text-sm text-card-foreground">
                         {item.name}
                     </h4>
                     <div className="flex items-center gap-1">
-                        {state.file && !state.isUploading && (
+                        {state.file && !state.isUploading && !isBlocked && (
                             <>
                                 <Button
                                     variant="ghost"
@@ -219,7 +230,7 @@ export function PendingUploadCard({ item, targetDate, onSuccess }: PendingUpload
                         onChange={handleFileSelect}
                         className="hidden"
                         id={`file-input-${item.id}`}
-                        disabled={state.isUploading}
+                        disabled={state.isUploading || isBlocked}
                     />
                     <label
                         htmlFor={`file-input-${item.id}`}

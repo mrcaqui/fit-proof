@@ -31,9 +31,10 @@ interface WorkoutCardProps {
     onUpdateStatus?: (id: number, status: 'success' | 'fail' | 'excused' | null) => Promise<any>
     onAddComment?: (submissionId: number, content: string) => Promise<any>
     onMarkAsRead?: (commentId: string) => Promise<any>
+    deadlineMode?: 'none' | 'mark' | 'block'
 }
 
-export function WorkoutCard({ submission, onDelete, isAdmin, onPlay, itemName, onUpdateStatus, onAddComment, onMarkAsRead }: WorkoutCardProps) {
+export function WorkoutCard({ submission, onDelete, isAdmin, onPlay, itemName, onUpdateStatus, onAddComment, onMarkAsRead, deadlineMode = 'none' }: WorkoutCardProps) {
     const [isDeleting, setIsDeleting] = useState(false)
     const [commentText, setCommentText] = useState((submission as any).admin_comments?.[0]?.content || '')
     const [isCommenting, setIsCommenting] = useState(false)
@@ -329,9 +330,23 @@ export function WorkoutCard({ submission, onDelete, isAdmin, onPlay, itemName, o
 
                                 {/* Status indicator for non-admin view */}
                                 {!isAdmin && !submission.status && (
-                                    <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[9px] font-normal text-amber-700 leading-none w-fit">
-                                        <Clock className="w-2.5 h-2.5 mr-1" />
-                                        未承認
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                        <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[9px] font-normal text-amber-700 leading-none w-fit">
+                                            <Clock className="w-2.5 h-2.5 mr-1" />
+                                            未承認
+                                        </span>
+                                        {/* 期限超過バッジ（markモードのみ表示） */}
+                                        {deadlineMode === 'mark' && (submission as any).is_late && (
+                                            <span className="inline-flex items-center rounded-full border border-orange-300 bg-orange-100 px-1.5 py-0.5 text-[9px] font-bold text-orange-700 leading-none w-fit">
+                                                期限超過
+                                            </span>
+                                        )}
+                                    </div>
+                                )}
+                                {/* 期限超過バッジ（承認済みや却下時も表示、markモードのみ） */}
+                                {deadlineMode === 'mark' && (submission as any).is_late && submission.status && (
+                                    <span className="inline-flex items-center rounded-full border border-orange-300 bg-orange-100 px-1.5 py-0.5 text-[9px] font-bold text-orange-700 leading-none w-fit mt-1">
+                                        期限超過
                                     </span>
                                 )}
                             </div>

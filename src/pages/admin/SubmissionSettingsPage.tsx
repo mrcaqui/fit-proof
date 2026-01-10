@@ -57,6 +57,7 @@ export default function SubmissionSettingsPage() {
     // Calendar submission limit state
     const [pastSubmissionDays, setPastSubmissionDays] = useState<number>(0)
     const [futureSubmissionDays, setFutureSubmissionDays] = useState<number>(0)
+    const [deadlineMode, setDeadlineMode] = useState<'none' | 'mark' | 'block'>('none')
     const [isUpdatingCalendarSettings, setIsUpdatingCalendarSettings] = useState(false)
 
     // Fetch clients
@@ -87,13 +88,14 @@ export default function SubmissionSettingsPage() {
 
             const { data, error } = await supabase
                 .from('profiles')
-                .select('past_submission_days, future_submission_days')
+                .select('past_submission_days, future_submission_days, deadline_mode')
                 .eq('id', selectedClientId)
-                .single() as { data: { past_submission_days: number | null, future_submission_days: number | null } | null, error: any }
+                .single() as { data: { past_submission_days: number | null, future_submission_days: number | null, deadline_mode: 'none' | 'mark' | 'block' | null } | null, error: any }
 
             if (!error && data) {
                 setPastSubmissionDays(data.past_submission_days ?? 0)
                 setFutureSubmissionDays(data.future_submission_days ?? 0)
+                setDeadlineMode(data.deadline_mode ?? 'none')
             }
         }
         fetchCalendarSettings()
@@ -107,7 +109,8 @@ export default function SubmissionSettingsPage() {
         const { error } = await client
             .update({
                 past_submission_days: pastSubmissionDays,
-                future_submission_days: futureSubmissionDays
+                future_submission_days: futureSubmissionDays,
+                deadline_mode: deadlineMode
             })
             .eq('id', selectedClientId)
 
@@ -434,6 +437,73 @@ export default function SubmissionSettingsPage() {
                                 <Button className="w-full" onClick={() => handleAddRule('deadline')}>
                                     <Plus className="w-4 h-4 mr-2" /> 期限ルールを追加
                                 </Button>
+
+                                {/* 期限の動作設定（当日のみ適用） */}
+                                <div className="space-y-3 pt-4 border-t">
+                                    <div>
+                                        <Label className="font-semibold">期限の動作設定</Label>
+                                        <p className="text-xs text-muted-foreground mt-1">
+                                            ※ 当日の投稿にのみ適用されます（過去・未来の日付には適用されません）
+                                        </p>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <label className="flex items-start gap-3 p-3 rounded-lg border cursor-pointer hover:bg-muted/50 transition-colors">
+                                            <input
+                                                type="radio"
+                                                name="deadlineMode"
+                                                value="none"
+                                                checked={deadlineMode === 'none'}
+                                                onChange={() => setDeadlineMode('none')}
+                                                className="mt-1"
+                                            />
+                                            <div>
+                                                <div className="font-medium">目安のみ（制限なし）</div>
+                                                <p className="text-xs text-muted-foreground">
+                                                    期限は表示されますが、過ぎても投稿可能です
+                                                </p>
+                                            </div>
+                                        </label>
+                                        <label className="flex items-start gap-3 p-3 rounded-lg border cursor-pointer hover:bg-muted/50 transition-colors">
+                                            <input
+                                                type="radio"
+                                                name="deadlineMode"
+                                                value="mark"
+                                                checked={deadlineMode === 'mark'}
+                                                onChange={() => setDeadlineMode('mark')}
+                                                className="mt-1"
+                                            />
+                                            <div>
+                                                <div className="font-medium">期限超過を許可してマーク</div>
+                                                <p className="text-xs text-muted-foreground">
+                                                    期限後も投稿可能ですが「期限超過」マークが付きます
+                                                </p>
+                                            </div>
+                                        </label>
+                                        <label className="flex items-start gap-3 p-3 rounded-lg border cursor-pointer hover:bg-muted/50 transition-colors">
+                                            <input
+                                                type="radio"
+                                                name="deadlineMode"
+                                                value="block"
+                                                checked={deadlineMode === 'block'}
+                                                onChange={() => setDeadlineMode('block')}
+                                                className="mt-1"
+                                            />
+                                            <div>
+                                                <div className="font-medium">期限を厳守（ブロック）</div>
+                                                <p className="text-xs text-muted-foreground">
+                                                    期限を過ぎると投稿できなくなります
+                                                </p>
+                                            </div>
+                                        </label>
+                                    </div>
+                                    <Button
+                                        className="w-full"
+                                        onClick={handleUpdateCalendarSettings}
+                                        disabled={isUpdatingCalendarSettings}
+                                    >
+                                        {isUpdatingCalendarSettings ? '保存中...' : '動作設定を保存'}
+                                    </Button>
+                                </div>
                             </div>
                         </CardContent>
                     </Card>
