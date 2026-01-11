@@ -82,6 +82,31 @@ export function useGamification({ targetUserId, submissions, isRestDay }: UseGam
         }
     }, [submissionsKey, fetchGamificationData])
 
+    // プロフィールのリアルタイム購読
+    useEffect(() => {
+        if (!effectiveUserId) return
+
+        const channel = supabase
+            .channel(`profile-changes-${effectiveUserId}`)
+            .on(
+                'postgres_changes',
+                {
+                    event: 'UPDATE',
+                    schema: 'public',
+                    table: 'profiles',
+                    filter: `id=eq.${effectiveUserId}`
+                },
+                () => {
+                    fetchGamificationData()
+                }
+            )
+            .subscribe()
+
+        return () => {
+            supabase.removeChannel(channel)
+        }
+    }, [effectiveUserId, fetchGamificationData])
+
     // 投稿データをストリーク計算用に変換
     const submissionsForStreak: SubmissionForStreak[] = useMemo(() => {
         return submissions.map(s => ({

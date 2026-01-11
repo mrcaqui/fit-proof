@@ -65,6 +65,13 @@ export function useWorkoutHistory(targetUserId?: string) {
 
     const deleteWorkout = async (id: number, r2Key: string | null) => {
         try {
+            // 現在の投稿を取得（削除前に減算用データを取得）
+            const targetWorkout = workouts.find(w => w.id === id)
+            const userId = targetWorkout?.user_id
+            const reps = targetWorkout?.reps || 0
+            const isApproved = targetWorkout?.status === 'success'
+            const isRevival = (targetWorkout as any)?.is_revival === true
+
             // 1. Delete from R2 if key exists
             if (r2Key) {
                 await deleteR2Object(r2Key)
@@ -78,7 +85,36 @@ export function useWorkoutHistory(targetUserId?: string) {
 
             if (dbError) throw dbError
 
-            // 3. Refresh the list silently
+            // 3. Profiles を更新（承認済みだった場合のみ減算）
+            if (userId && isApproved) {
+                const { data: profileData } = await supabase
+                    .from('profiles')
+                    .select('total_reps, revival_success_count')
+                    .eq('id', userId)
+                    .single()
+
+                if (profileData) {
+                    const updates: any = {}
+                    const currentTotal = (profileData as any).total_reps || 0
+                    const currentRevival = (profileData as any).revival_success_count || 0
+
+                    if (reps > 0) {
+                        updates.total_reps = Math.max(0, currentTotal - reps)
+                    }
+
+                    if (isRevival) {
+                        updates.revival_success_count = Math.max(0, currentRevival - 1)
+                    }
+
+                    if (Object.keys(updates).length > 0) {
+                        await (supabase.from('profiles') as any)
+                            .update(updates)
+                            .eq('id', userId)
+                    }
+                }
+            }
+
+            // 4. Refresh the list silently
             await fetchWorkouts(true)
             return { success: true }
         } catch (err: any) {
@@ -196,9 +232,15 @@ export function useWorkoutHistory(targetUserId?: string) {
                         newRevivalCount = currentRevivalCount + 1
                     }
                 }
-                // 取り消し時: 以前のrepsを減算
-                else if (status === null && previousStatus === 'success' && previousReps > 0) {
-                    newTotalReps = Math.max(0, currentTotalReps - previousReps)
+                // 取り消し・却下時: 以前承認済みだったならrepsを減算
+                else if ((status === null || status === 'fail') && previousStatus === 'success') {
+                    if (previousReps > 0) {
+                        newTotalReps = Math.max(0, currentTotalReps - previousReps)
+                    }
+                    // リバイバルカウントも減算
+                    if (currentWorkout && (currentWorkout as any).is_revival === true) {
+                        newRevivalCount = Math.max(0, currentRevivalCount - 1)
+                    }
                 }
 
                 // プロフィールを更新
