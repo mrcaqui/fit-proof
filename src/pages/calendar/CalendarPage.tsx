@@ -26,6 +26,9 @@ import { getR2PublicUrl } from '@/lib/r2'
 import { useSubmissionRules } from '@/hooks/useSubmissionRules'
 import { useSubmissionItems } from '@/hooks/useSubmissionItems'
 import { useSwipeable } from 'react-swipeable'
+import { useGamification } from '@/hooks/useGamification'
+import { GamificationNotifications } from '@/components/gamification/GamificationPopup'
+// Popover is used instead of Tooltip for better mobile compatibility
 
 export default function CalendarPage() {
     const { profile, user } = useAuth()
@@ -49,6 +52,48 @@ export default function CalendarPage() {
     const [selectedDate, setSelectedDate] = useState<Date>(new Date())
     const [currentMonth, setCurrentMonth] = useState<Date>(new Date())
     const [isDatePickerOpen, setIsDatePickerOpen] = useState(false)
+
+    // 定休日判定関数
+    const isRestDay = (date: Date): boolean => {
+        const targetDayRule = getRuleForDate(date, 'target_day')
+        return targetDayRule !== null && targetDayRule !== 'true'
+    }
+
+    // ゲーミフィケーションフック
+    const gamification = useGamification({
+        targetUserId: isAdmin ? selectedClientId : user?.id,
+        submissions: workouts,
+        isRestDay
+    })
+
+    // クライアント側: localStorageから保留中のリバイバル通知を読み取り表示
+    const [clientNotifications, setClientNotifications] = useState<Array<{
+        type: 'revival_success';
+        message: string;
+        targetDate?: string;
+    }>>([])
+
+    useEffect(() => {
+        // 管理者はスキップ
+        if (isAdmin || !user?.id) return
+
+        const notificationKey = `pending_revival_${user.id}`
+        const stored = localStorage.getItem(notificationKey)
+
+        if (stored) {
+            try {
+                const notifications = JSON.parse(stored)
+                if (notifications.length > 0) {
+                    setClientNotifications(notifications)
+                    // 表示後にクリア
+                    localStorage.removeItem(notificationKey)
+                }
+            } catch (e) {
+                console.error('Failed to parse notifications:', e)
+                localStorage.removeItem(notificationKey)
+            }
+        }
+    }, [isAdmin, user?.id])
 
     // 月変更ハンドラー（日付の同期付き）
     const handleMonthChange = (newMonth: Date) => {
@@ -227,6 +272,91 @@ export default function CalendarPage() {
                 </Button>
             </div>
 
+            {/* ゲーミフィケーションダッシュボード（クライアント時または管理者がクライアント選択時） */}
+            {(!isAdmin || selectedClientId) && gamification && (
+                <>
+                    <div className="mx-1 sm:mx-0 px-4 py-3 bg-gradient-to-r from-primary/5 via-primary/10 to-primary/5 rounded-lg border space-y-2">
+                        {/* 上段: ストリークと累積回数 - 均等配置 */}
+                        <div className="flex items-center justify-between px-2">
+                            {/* ストリーク */}
+                            <Popover>
+                                <PopoverTrigger asChild>
+                                    <button className="flex items-center gap-2 font-bold text-lg hover:opacity-80 transition-opacity cursor-help">
+                                        <span className="text-xl">🔥</span>
+                                        <span>{gamification.state.currentStreak}日連続</span>
+                                    </button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-64 text-sm">
+                                    <p className="font-semibold mb-1">🔥 連続日数</p>
+                                    <p className="text-muted-foreground">投稿を続けた日数です。定休日はカウントされません。シールドやリバイバルで途切れを防げます！</p>
+                                </PopoverContent>
+                            </Popover>
+
+                            {/* 累積回数 */}
+                            <Popover>
+                                <PopoverTrigger asChild>
+                                    <button className="flex items-center gap-2 text-muted-foreground text-lg hover:opacity-80 transition-opacity cursor-help">
+                                        <span className="font-bold">TOTAL:</span>
+                                        <span className="font-semibold">{gamification.state.totalReps}回</span>
+                                    </button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-64 text-sm">
+                                    <p className="font-semibold mb-1">💪 累積回数</p>
+                                    <p className="text-muted-foreground">これまでに承認されたトレーニングの合計回数です。頑張りの積み重ねが一目でわかります！</p>
+                                </PopoverContent>
+                            </Popover>
+                        </div>
+
+                        {/* 下段: シールド・ストレート・復活（Popoverで説明表示） - 均等配置 */}
+                        <div className="flex items-center justify-between px-2 text-sm text-muted-foreground">
+                            {/* シールド */}
+                            <Popover>
+                                <PopoverTrigger asChild>
+                                    <button className="flex items-center gap-1.5 cursor-help hover:opacity-80 transition-opacity">
+                                        <img src="/assets/shield.png" alt="シールド" className="w-10 h-10" />
+                                        <span className="font-semibold text-base">{gamification.state.shieldStock}</span>
+                                    </button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-64 text-sm">
+                                    <p className="font-semibold mb-1">🛡️ シールド</p>
+                                    <p className="text-muted-foreground">投稿を忘れた日に自動消費され、ストリークを守ります。7日連続達成でシールド+1獲得！</p>
+                                </PopoverContent>
+                            </Popover>
+
+                            {/* ストレート達成（7日間シールドなし） */}
+                            <Popover>
+                                <PopoverTrigger asChild>
+                                    <button className="flex items-center gap-1.5 cursor-help hover:opacity-80 transition-opacity">
+                                        <img src="/assets/perfect_crown.png" alt="ストレート" className="w-10 h-10" />
+                                        <span className="font-semibold text-base">{gamification.state.perfectWeekCount}</span>
+                                    </button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-64 text-sm">
+                                    <p className="font-semibold mb-1">👑 ストレート達成</p>
+                                    <p className="text-muted-foreground">7日連続をシールドやリバイバルなしで達成した回数。真の継続力の証！</p>
+                                </PopoverContent>
+                            </Popover>
+
+                            {/* リバイバル */}
+                            <Popover>
+                                <PopoverTrigger asChild>
+                                    <button className="flex items-center gap-1.5 cursor-help hover:opacity-80 transition-opacity">
+                                        <img src="/assets/revival_badge.png" alt="復活" className="w-10 h-10" />
+                                        <span className="font-semibold text-base">
+                                            {(workouts || []).filter(w => w.status === 'success' && w.is_revival === true).length}
+                                        </span>
+                                    </button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-64 text-sm">
+                                    <p className="font-semibold mb-1">🔥 リバイバル</p>
+                                    <p className="text-muted-foreground">過去の空白日を後から埋めてストリークを復活させた回数。諦めない心の証！</p>
+                                </PopoverContent>
+                            </Popover>
+                        </div>
+                    </div>
+                </>
+            )}
+
             <Card className="border shadow-sm overflow-hidden mx-1 sm:mx-0">
                 <CardHeader className="py-2 border-b bg-muted/30">
                     <div className="flex items-center justify-between">
@@ -325,6 +455,14 @@ export default function CalendarPage() {
                                 const isAllApproved = successCount >= totalItems && !st?.hasFail
                                 const isComplete = submittedCount >= totalItems
 
+                                // リバイバル日かどうか（この日付にis_revival=trueの承認済み投稿があるか）
+                                const isRevivalDay = (workouts || []).some(s =>
+                                    s.target_date &&
+                                    isSameDay(parseISO(s.target_date), date) &&
+                                    s.status === 'success' &&
+                                    s.is_revival === true
+                                )
+
                                 // 投稿可能範囲の計算
                                 const today = startOfDay(new Date())
                                 const dateStart = startOfDay(date)
@@ -363,34 +501,50 @@ export default function CalendarPage() {
                                             </div>
                                         )}
 
-                                        <div className="flex flex-col items-center justify-center w-full min-h-[28px] relative">
-                                            {/* Status Indicators (Green/Yellow only - Red is replaced by rejection stamp) */}
-                                            {st?.hasSubmission && !st.hasFail && (
-                                                <div className="flex flex-wrap justify-center gap-0.5 mb-1">
-                                                    {isComplete && <div className="w-1.5 h-1.5 rounded-full bg-green-500 shadow-sm" />}
-                                                    {!isComplete && <div className="w-1.5 h-1.5 rounded-full bg-yellow-400 shadow-sm" />}
-                                                </div>
-                                            )}
+                                        {/* Shield Day Indicator (Left Corner) */}
+                                        {gamification.isShieldDay(date) && (
+                                            <div className="absolute top-1 left-1 z-20">
+                                                <img src="/assets/shield.png" alt="" className="w-3 h-3 opacity-80" />
+                                            </div>
+                                        )}
 
-                                            {/* Stamp Overlay (Absoluted over everything) */}
-                                            {st?.hasSubmission && (
-                                                <div className="absolute inset-0 z-30 flex items-center justify-center pointer-events-none">
-                                                    {st.hasFail ? (
-                                                        <img
-                                                            src="/assets/stamps/yousyuusei-120.png"
-                                                            alt="Rejected"
-                                                            className="w-10 h-10 object-contain drop-shadow-md opacity-85 translate-y-2"
-                                                        />
-                                                    ) : isAllApproved ? (
-                                                        <img
-                                                            src="/assets/stamps/azasu-120.png"
-                                                            alt="Approved"
-                                                            className="w-9 h-9 object-contain drop-shadow-md opacity-85 rotate-[-5deg] translate-y-2"
-                                                        />
-                                                    ) : null}
-                                                </div>
-                                            )}
+                                        <div className="flex flex-col items-center justify-center w-full min-h-[28px] relative">
                                         </div>
+
+                                        {/* Stamp Overlay - セル全体に対してabsolute */}
+                                        {st?.hasSubmission && (
+                                            <div className="absolute inset-0 z-30 flex items-center justify-center pointer-events-none overflow-visible">
+                                                {st.hasFail ? (
+                                                    <img
+                                                        src="/assets/stamps/yousyuusei-120.png"
+                                                        alt="Rejected"
+                                                        className="w-16 h-16 sm:w-20 sm:h-20 object-contain drop-shadow-md opacity-85"
+                                                    />
+                                                ) : isAllApproved && isRevivalDay ? (
+                                                    /* リバイバル: フェニックスアイコンをセル全体に大きく表示 */
+                                                    <img
+                                                        src="/assets/phoenix.png"
+                                                        alt="Revival"
+                                                        className="w-16 h-16 sm:w-20 sm:h-20 object-contain drop-shadow-lg"
+                                                    />
+                                                ) : isAllApproved ? (
+                                                    <img
+                                                        src="/assets/stamps/azasu-120.png"
+                                                        alt="Approved"
+                                                        className="w-16 h-16 sm:w-20 sm:h-20 object-contain drop-shadow-md opacity-85 rotate-[-5deg]"
+                                                    />
+                                                ) : null}
+                                            </div>
+                                        )}
+
+                                        {/* 緑インジケーター - 最上位レイヤーでセル中央に表示 */}
+                                        {st?.hasSubmission && !st.hasFail && (
+                                            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 flex items-center gap-0.5">
+                                                {isComplete && <div className="w-2 h-2 rounded-full bg-green-500 shadow-md border border-white" />}
+                                                {!isComplete && <div className="w-2 h-2 rounded-full bg-yellow-400 shadow-md border border-white" />}
+                                            </div>
+                                        )}
+
 
 
                                         {/* Bottom Content: Progress & Deadline (提出対象日に表示) or 休息日表示 */}
@@ -467,6 +621,14 @@ export default function CalendarPage() {
                 videoUrl={selectedVideo}
                 onClose={() => setSelectedVideo(null)}
             />
+
+            {/* ゲーミフィケーション通知ポップアップ（クライアント向け - localStorageから） */}
+            {!isAdmin && (
+                <GamificationNotifications
+                    notifications={clientNotifications}
+                    onClear={(index) => setClientNotifications(prev => prev.filter((_, i) => i !== index))}
+                />
+            )}
         </div >
     )
 }

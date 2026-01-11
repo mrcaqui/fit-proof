@@ -19,6 +19,7 @@ import {
     PopoverContent,
     PopoverTrigger,
 } from "@/components/ui/popover"
+import { Input } from '@/components/ui/input'
 
 type Submission = Database['public']['Tables']['submissions']['Row']
 
@@ -28,7 +29,7 @@ interface WorkoutCardProps {
     isAdmin?: boolean
     onPlay?: (key: string) => void
     itemName?: string
-    onUpdateStatus?: (id: number, status: 'success' | 'fail' | 'excused' | null) => Promise<any>
+    onUpdateStatus?: (id: number, status: 'success' | 'fail' | 'excused' | null, reps?: number | null) => Promise<any>
     onAddComment?: (submissionId: number, content: string) => Promise<any>
     onMarkAsRead?: (commentId: string) => Promise<any>
     deadlineMode?: 'none' | 'mark' | 'block'
@@ -38,14 +39,33 @@ export function WorkoutCard({ submission, onDelete, isAdmin, onPlay, itemName, o
     const [isDeleting, setIsDeleting] = useState(false)
     const [commentText, setCommentText] = useState((submission as any).admin_comments?.[0]?.content || '')
     const [isCommenting, setIsCommenting] = useState(false)
+    const [repsInput, setRepsInput] = useState<string>(submission.reps?.toString() || '')
+    const [isApproveOpen, setIsApproveOpen] = useState(false)
+    const [isUpdatingStatus, setIsUpdatingStatus] = useState(false)
 
     const reviewedAtStr = submission.reviewed_at
         ? format(parseISO(submission.reviewed_at), 'MM/dd HH:mm')
         : null
 
-    const handleStatusUpdate = async (status: 'success' | 'fail' | 'excused' | null) => {
+    const handleStatusUpdate = async (status: 'success' | 'fail' | 'excused' | null, reps?: number | null) => {
         if (!onUpdateStatus) return
-        await onUpdateStatus(submission.id, status)
+        setIsUpdatingStatus(true)
+        try {
+            await onUpdateStatus(submission.id, status, reps)
+            if (status === 'success') {
+                setIsApproveOpen(false)
+            }
+        } finally {
+            setIsUpdatingStatus(false)
+        }
+    }
+
+    const handleApproveWithReps = async () => {
+        const reps = parseInt(repsInput, 10)
+        if (isNaN(reps) || reps < 0) {
+            return
+        }
+        await handleStatusUpdate('success', reps)
     }
 
     const handleAddComment = async () => {
@@ -125,11 +145,18 @@ export function WorkoutCard({ submission, onDelete, isAdmin, onPlay, itemName, o
                         alt="Approved"
                         className="w-14 h-14 object-contain rotate-[-5deg] drop-shadow-md"
                     />
-                    {reviewedAtStr && (
-                        <span className="text-[7px] text-muted-foreground font-mono -mt-1">
-                            {reviewedAtStr}
-                        </span>
-                    )}
+                    <div className="flex items-center gap-1 -mt-1">
+                        {reviewedAtStr && (
+                            <span className="text-[7px] text-muted-foreground font-mono">
+                                {reviewedAtStr}
+                            </span>
+                        )}
+                        {submission.reps != null && (
+                            <span className="bg-green-600 text-white text-[8px] font-bold rounded-full w-4 h-4 flex items-center justify-center shadow-sm border border-white">
+                                {submission.reps}
+                            </span>
+                        )}
+                    </div>
                 </div>
             )}
             {submission.status === 'fail' && (
@@ -219,15 +246,47 @@ export function WorkoutCard({ submission, onDelete, isAdmin, onPlay, itemName, o
                                 {/* Admin Actions - Compact icon buttons below timestamp */}
                                 {isAdmin && (
                                     <div className="flex items-center gap-1 pt-0.5">
-                                        <Button
-                                            size="icon"
-                                            variant="outline"
-                                            onClick={() => handleStatusUpdate('success')}
-                                            className={`h-6 w-6 ${submission.status === 'success' ? 'bg-green-100 border-green-300' : 'border-muted-foreground/20 hover:bg-green-50 hover:border-green-200'}`}
-                                            title="承認"
-                                        >
-                                            <CheckCircle2 className="w-3.5 h-3.5 text-green-600" />
-                                        </Button>
+                                        {/* 承認ボタン（回数入力付きポップオーバー） */}
+                                        <Popover open={isApproveOpen} onOpenChange={setIsApproveOpen}>
+                                            <PopoverTrigger asChild>
+                                                <Button
+                                                    size="icon"
+                                                    variant="outline"
+                                                    className={`h-6 w-6 ${submission.status === 'success' ? 'bg-green-100 border-green-300' : 'border-muted-foreground/20 hover:bg-green-50 hover:border-green-200'}`}
+                                                    title="承認"
+                                                >
+                                                    <CheckCircle2 className="w-3.5 h-3.5 text-green-600" />
+                                                </Button>
+                                            </PopoverTrigger>
+                                            <PopoverContent side="top" className="w-56 p-3 bg-white shadow-xl z-[200]">
+                                                <div className="space-y-3">
+                                                    <h5 className="text-xs font-bold text-slate-500 uppercase tracking-wider">承認 + 回数入力</h5>
+                                                    <div className="flex items-center gap-2">
+                                                        <Input
+                                                            type="number"
+                                                            min="0"
+                                                            placeholder="回数"
+                                                            value={repsInput}
+                                                            onChange={(e) => setRepsInput(e.target.value)}
+                                                            className="h-8 text-sm"
+                                                        />
+                                                        <span className="text-sm text-muted-foreground">回</span>
+                                                    </div>
+                                                    {submission.reps != null && (
+                                                        <p className="text-[10px] text-muted-foreground">現在: {submission.reps}回</p>
+                                                    )}
+                                                    <Button
+                                                        size="sm"
+                                                        className="w-full h-8 gap-1.5 bg-green-600 hover:bg-green-700"
+                                                        onClick={handleApproveWithReps}
+                                                        disabled={isUpdatingStatus || !repsInput || parseInt(repsInput, 10) < 0}
+                                                    >
+                                                        {isUpdatingStatus ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle2 className="w-3 h-3" />}
+                                                        承認する
+                                                    </Button>
+                                                </div>
+                                            </PopoverContent>
+                                        </Popover>
                                         <Button
                                             size="icon"
                                             variant="outline"
@@ -354,7 +413,7 @@ export function WorkoutCard({ submission, onDelete, isAdmin, onPlay, itemName, o
                     </div>
                 </div>
             </CardContent>
-        </Card>
+        </Card >
     )
 }
 

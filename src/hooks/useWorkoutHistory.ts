@@ -87,21 +87,143 @@ export function useWorkoutHistory(targetUserId?: string) {
         }
     }
 
-    // Placeholder for status update logic (Approve / Reject)
-    const updateWorkoutStatus = async (id: number, status: 'success' | 'fail' | 'excused' | null) => {
+    // ステータス更新ロジック（承認/却下/取り消し）
+    const updateWorkoutStatus = async (
+        id: number,
+        status: 'success' | 'fail' | 'excused' | null,
+        reps?: number | null
+    ) => {
         try {
-            const updateData: { status: typeof status; reviewed_at: string | null } = {
+            // 現在の投稿を取得（取り消し時に前のrepsを取得するため）
+            const currentWorkout = workouts.find(w => w.id === id)
+            const previousReps = currentWorkout?.reps || 0
+            const previousStatus = currentWorkout?.status
+            const userId = currentWorkout?.user_id
+            const targetDate = currentWorkout?.target_date
+
+            // 承認時はrepsも保存、取り消し時はrepsをnullにリセット
+            const updateData: {
+                status: typeof status;
+                reviewed_at: string | null;
+                reps?: number | null;
+                is_revival?: boolean;
+            } = {
                 status,
                 reviewed_at: status ? new Date().toISOString() : null
             }
+
+            // 承認時はrepsを設定
+            if (status === 'success' && reps !== undefined) {
+                updateData.reps = reps
+            }
+            // 取り消し時はrepsをnullにリセット
+            if (status === null) {
+                updateData.reps = null
+                updateData.is_revival = false
+            }
+
+            // 新規承認時のリバイバル自動判定
+            let isRevival = false
+            if (status === 'success' && previousStatus !== 'success' && targetDate) {
+                // この日付に他の承認済み投稿があるか確認
+                const hasOtherApproved = workouts.some(w =>
+                    w.id !== id &&
+                    w.target_date === targetDate &&
+                    w.status === 'success'
+                )
+
+                // 過去の日付で、他に承認済みがなければリバイバル候補
+                const targetDateObj = new Date(targetDate)
+                const today = new Date()
+                today.setHours(0, 0, 0, 0)
+                targetDateObj.setHours(0, 0, 0, 0)
+
+                if (targetDateObj < today && !hasOtherApproved) {
+                    // 過去日かつ初回承認 → リバイバル
+                    isRevival = true
+                    updateData.is_revival = true
+
+                    // クライアント向けに通知をlocalStorageに保存
+                    if (userId) {
+                        const notificationKey = `pending_revival_${userId}`
+                        const existing = localStorage.getItem(notificationKey)
+                        const notifications = existing ? JSON.parse(existing) : []
+                        notifications.push({
+                            type: 'revival_success',
+                            message: '🔥 不屈の復活！過去の空白を埋めました！',
+                            targetDate,
+                            createdAt: new Date().toISOString()
+                        })
+                        localStorage.setItem(notificationKey, JSON.stringify(notifications))
+                    }
+                }
+            }
+
+            // 1. submissions テーブルを更新
             const { error: dbError } = await (supabase
                 .from('submissions') as any)
                 .update(updateData)
                 .eq('id', id)
 
             if (dbError) throw dbError
+
+            // 2. profiles.total_reps を更新
+            if (userId) {
+                // 現在のプロフィールを取得
+                const { data: profileData } = await supabase
+                    .from('profiles')
+                    .select('total_reps, revival_success_count')
+                    .eq('id', userId)
+                    .single()
+
+                const currentTotalReps = (profileData as any)?.total_reps || 0
+                const currentRevivalCount = (profileData as any)?.revival_success_count || 0
+                let newTotalReps = currentTotalReps
+                let newRevivalCount = currentRevivalCount
+
+                // 承認時: repsを加算（以前も承認済みだった場合は差分を計算）
+                if (status === 'success' && reps !== undefined && reps !== null) {
+                    if (previousStatus === 'success') {
+                        // 再承認の場合: 差分を適用
+                        newTotalReps = currentTotalReps - previousReps + reps
+                    } else {
+                        // 新規承認の場合: 加算
+                        newTotalReps = currentTotalReps + reps
+                    }
+
+                    // リバイバルカウント加算
+                    if (isRevival) {
+                        newRevivalCount = currentRevivalCount + 1
+                    }
+                }
+                // 取り消し時: 以前のrepsを減算
+                else if (status === null && previousStatus === 'success' && previousReps > 0) {
+                    newTotalReps = Math.max(0, currentTotalReps - previousReps)
+                }
+
+                // プロフィールを更新
+                const profileUpdates: any = {}
+                if (newTotalReps !== currentTotalReps) {
+                    profileUpdates.total_reps = newTotalReps
+                }
+                if (newRevivalCount !== currentRevivalCount) {
+                    profileUpdates.revival_success_count = newRevivalCount
+                }
+
+                if (Object.keys(profileUpdates).length > 0) {
+                    const { error: profileError } = await (supabase
+                        .from('profiles') as any)
+                        .update(profileUpdates)
+                        .eq('id', userId)
+
+                    if (profileError) {
+                        console.error('Profile update failed:', profileError)
+                    }
+                }
+            }
+
             await fetchWorkouts(true)
-            return { success: true }
+            return { success: true, isRevival }
         } catch (err: any) {
             console.error('Status update failed:', err)
             return { success: false, error: err.message }

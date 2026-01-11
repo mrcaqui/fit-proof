@@ -19,6 +19,10 @@ export interface Database {
                     past_submission_days: number
                     future_submission_days: number
                     deadline_mode: 'none' | 'mark' | 'block'
+                    total_reps: number
+                    shield_stock: number
+                    perfect_week_count: number
+                    revival_success_count: number
                 }
                 Insert: {
                     id: string
@@ -29,6 +33,10 @@ export interface Database {
                     past_submission_days?: number
                     future_submission_days?: number
                     deadline_mode?: 'none' | 'mark' | 'block'
+                    total_reps?: number
+                    shield_stock?: number
+                    perfect_week_count?: number
+                    revival_success_count?: number
                 }
                 Update: {
                     id?: string
@@ -39,6 +47,10 @@ export interface Database {
                     past_submission_days?: number
                     future_submission_days?: number
                     deadline_mode?: 'none' | 'mark' | 'block'
+                    total_reps?: number
+                    shield_stock?: number
+                    perfect_week_count?: number
+                    revival_success_count?: number
                 }
             }
             submission_items: {
@@ -80,6 +92,8 @@ export interface Database {
                     file_name: string | null
                     reviewed_at: string | null
                     is_late: boolean
+                    reps: number | null
+                    is_revival: boolean
                 }
                 Insert: {
                     id?: number
@@ -95,6 +109,8 @@ export interface Database {
                     created_at?: string
                     reviewed_at?: string | null
                     is_late?: boolean
+                    reps?: number | null
+                    is_revival?: boolean
                 }
                 Update: {
                     id?: number
@@ -110,6 +126,8 @@ export interface Database {
                     created_at?: string
                     reviewed_at?: string | null
                     is_late?: boolean
+                    reps?: number | null
+                    is_revival?: boolean
                 }
             }
             submission_rules: {
