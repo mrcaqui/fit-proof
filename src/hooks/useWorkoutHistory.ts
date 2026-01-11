@@ -310,6 +310,22 @@ export function useWorkoutHistory(targetUserId?: string) {
         }
     }
 
+    const deleteAdminComment = async (commentId: string) => {
+        try {
+            const { error: dbError } = await (supabase
+                .from('admin_comments') as any)
+                .delete()
+                .eq('id', commentId)
+
+            if (dbError) throw dbError
+            await fetchWorkouts(true)
+            return { success: true }
+        } catch (err: any) {
+            console.error('Delete comment failed:', err)
+            return { success: false, error: err.message }
+        }
+    }
+
     useEffect(() => {
         fetchWorkouts()
 
@@ -360,6 +376,7 @@ export function useWorkoutHistory(targetUserId?: string) {
         deleteWorkout,
         updateWorkoutStatus,
         addAdminComment,
+        deleteAdminComment,
         markCommentAsRead
     }
 }

@@ -20,6 +20,7 @@ interface SwipeableWorkoutViewProps {
   onPlay?: (key: string) => void
   onUpdateStatus?: (id: number, status: 'success' | 'fail' | 'excused' | null) => Promise<any>
   onAddComment?: (submissionId: number, content: string) => Promise<any>
+  onDeleteComment?: (commentId: string) => Promise<any>
   onMarkAsRead?: (commentId: string) => Promise<any>
   submissionItems?: SubmissionItem[]
   onUploadSuccess?: () => void
@@ -40,6 +41,7 @@ export function SwipeableWorkoutView({
   onPlay,
   onUpdateStatus,
   onAddComment,
+  onDeleteComment,
   onMarkAsRead,
   submissionItems = [],
   onUploadSuccess,
@@ -217,6 +219,7 @@ export function SwipeableWorkoutView({
                     onPlay={isMain ? onPlay : undefined}
                     onUpdateStatus={isMain ? onUpdateStatus : undefined}
                     onAddComment={isMain ? onAddComment : undefined}
+                    onDeleteComment={isMain ? onDeleteComment : undefined}
                     onMarkAsRead={isMain ? onMarkAsRead : undefined}
                     itemName={item?.name}
                     deadlineMode={deadlineMode}

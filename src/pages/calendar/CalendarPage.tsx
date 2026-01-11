@@ -48,7 +48,7 @@ export default function CalendarPage() {
     const { getRuleForDate, isDeadlinePassed, loading: _rulesLoading } = useSubmissionRules(targetUserId)
     const { items: submissionItems } = useSubmissionItems(targetUserId)
 
-    const { workouts, loading, refetch, deleteWorkout, updateWorkoutStatus, addAdminComment, markCommentAsRead } = useWorkoutHistory(selectedClientId)
+    const { workouts, loading, refetch, deleteWorkout, updateWorkoutStatus, addAdminComment, deleteAdminComment, markCommentAsRead } = useWorkoutHistory(selectedClientId)
     const [selectedDate, setSelectedDate] = useState<Date>(new Date())
     const [currentMonth, setCurrentMonth] = useState<Date>(new Date())
     const [isDatePickerOpen, setIsDatePickerOpen] = useState(false)
@@ -589,6 +589,7 @@ export default function CalendarPage() {
                 isAdmin={isAdmin}
                 onUpdateStatus={updateWorkoutStatus}
                 onAddComment={addAdminComment}
+                onDeleteComment={deleteAdminComment}
                 onMarkAsRead={markCommentAsRead}
                 onPlay={(key: string) => setSelectedVideo(getR2PublicUrl(key))}
                 submissionItems={submissionItems}

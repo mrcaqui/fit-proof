@@ -31,14 +31,16 @@ interface WorkoutCardProps {
     itemName?: string
     onUpdateStatus?: (id: number, status: 'success' | 'fail' | 'excused' | null, reps?: number | null) => Promise<any>
     onAddComment?: (submissionId: number, content: string) => Promise<any>
+    onDeleteComment?: (commentId: string) => Promise<any>
     onMarkAsRead?: (commentId: string) => Promise<any>
     deadlineMode?: 'none' | 'mark' | 'block'
 }
 
-export function WorkoutCard({ submission, onDelete, isAdmin, onPlay, itemName, onUpdateStatus, onAddComment, onMarkAsRead, deadlineMode = 'none' }: WorkoutCardProps) {
+export function WorkoutCard({ submission, onDelete, isAdmin, onPlay, itemName, onUpdateStatus, onAddComment, onDeleteComment, onMarkAsRead, deadlineMode = 'none' }: WorkoutCardProps) {
     const [isDeleting, setIsDeleting] = useState(false)
     const [commentText, setCommentText] = useState((submission as any).admin_comments?.[0]?.content || '')
     const [isCommenting, setIsCommenting] = useState(false)
+    const [isDeletingComment, setIsDeletingComment] = useState(false)
     const [repsInput, setRepsInput] = useState<string>(submission.reps?.toString() || '')
     const [isApproveOpen, setIsApproveOpen] = useState(false)
     const [isUpdatingStatus, setIsUpdatingStatus] = useState(false)
@@ -75,6 +77,23 @@ export function WorkoutCard({ submission, onDelete, isAdmin, onPlay, itemName, o
             await onAddComment(submission.id, commentText)
         } finally {
             setIsCommenting(false)
+        }
+    }
+
+    const handleDeleteComment = async () => {
+        const comment = (submission as any).admin_comments?.[0]
+        if (!onDeleteComment || !comment) return
+
+        if (!window.confirm('管理者コメントを削除してもよろしいですか？')) {
+            return
+        }
+
+        setIsDeletingComment(true)
+        try {
+            await onDeleteComment(comment.id)
+            setCommentText('')
+        } finally {
+            setIsDeletingComment(false)
         }
     }
 
@@ -338,15 +357,29 @@ export function WorkoutCard({ submission, onDelete, isAdmin, onPlay, itemName, o
                                                         <span className="text-[10px] text-muted-foreground">
                                                             {adminComment?.read_at ? `既読: ${format(parseISO(adminComment.read_at), 'MM/dd HH:mm')}` : '未読'}
                                                         </span>
-                                                        <Button
-                                                            size="sm"
-                                                            className="h-8 gap-1.5"
-                                                            onClick={handleAddComment}
-                                                            disabled={isCommenting || !commentText.trim()}
-                                                        >
-                                                            {isCommenting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
-                                                            保存
-                                                        </Button>
+                                                        <div className="flex gap-2">
+                                                            {adminComment && (
+                                                                <Button
+                                                                    size="sm"
+                                                                    variant="outline"
+                                                                    className="h-8 text-destructive hover:bg-destructive/10"
+                                                                    onClick={handleDeleteComment}
+                                                                    disabled={isDeletingComment}
+                                                                >
+                                                                    {isDeletingComment ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3 mr-1" />}
+                                                                    削除
+                                                                </Button>
+                                                            )}
+                                                            <Button
+                                                                size="sm"
+                                                                className="h-8 gap-1.5"
+                                                                onClick={handleAddComment}
+                                                                disabled={isCommenting || !commentText.trim()}
+                                                            >
+                                                                {isCommenting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
+                                                                保存
+                                                            </Button>
+                                                        </div>
                                                     </div>
                                                 </div>
                                             </PopoverContent>
