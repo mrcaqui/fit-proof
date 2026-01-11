@@ -100,7 +100,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     streak_count: 0,
                     updated_at: null,
                     past_submission_days: 7,
-                    future_submission_days: 7
+                    future_submission_days: 7,
+                    deadline_mode: 'none',
+                    total_reps: 0,
+                    shield_stock: 0,
+                    perfect_week_count: 0,
+                    revival_success_count: 0
                 }
 
                 const { error: insertError } = await supabase
@@ -121,7 +126,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     streak_count: 0,
                     updated_at: null,
                     past_submission_days: 7,
-                    future_submission_days: 7
+                    future_submission_days: 7,
+                    deadline_mode: 'none',
+                    total_reps: 0,
+                    shield_stock: 0,
+                    perfect_week_count: 0,
+                    revival_success_count: 0
                 })
             } else if (data) {
                 const profileData = data as Profile

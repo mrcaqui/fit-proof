@@ -3,7 +3,7 @@
  * オンデマンドで承認済み履歴と定休日設定から各種実績を算出
  */
 
-import { parseISO, format, eachDayOfInterval, subDays, isBefore, isAfter, startOfDay } from 'date-fns'
+import { format, eachDayOfInterval, subDays, isBefore, startOfDay } from 'date-fns'
 
 /**
  * 投稿データの最小型

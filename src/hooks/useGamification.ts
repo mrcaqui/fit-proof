@@ -39,7 +39,7 @@ interface UseGamificationOptions {
 }
 
 export function useGamification({ targetUserId, submissions, isRestDay }: UseGamificationOptions) {
-    const { user, profile } = useAuth()
+    const { user } = useAuth()
     const effectiveUserId = targetUserId || user?.id
 
     const [gamificationProfile, setGamificationProfile] = useState<Partial<Profile>>({})
