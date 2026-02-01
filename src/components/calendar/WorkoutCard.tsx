@@ -197,20 +197,20 @@ export function WorkoutCard({ submission, onDelete, isAdmin, onPlay, itemName, o
             )}
 
             <CardContent className="p-0">
-                <div className="flex h-24 sm:h-28">
-                    {/* Thumbnail Area (Left) */}
+                <div className="flex">
+                    {/* Thumbnail Area (Left) - 高さは右側コンテンツに追従 */}
                     <div
-                        className="relative w-24 sm:w-28 shrink-0 bg-muted cursor-pointer group/thumb"
+                        className="relative w-24 sm:w-28 shrink-0 bg-muted cursor-pointer group/thumb overflow-hidden"
                         onClick={() => submission.r2_key && onPlay?.(submission.r2_key)}
                     >
                         {submission.thumbnail_url ? (
                             <img
                                 src={submission.thumbnail_url}
                                 alt="Thumbnail"
-                                className="w-full h-full object-cover transition-transform duration-500 group-hover/thumb:scale-110"
+                                className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover/thumb:scale-110"
                             />
                         ) : (
-                            <div className="w-full h-full flex items-center justify-center bg-muted">
+                            <div className="absolute inset-0 w-full h-full flex items-center justify-center bg-muted">
                                 <Play className="w-8 h-8 text-muted-foreground/40" />
                             </div>
                         )}
@@ -235,8 +235,8 @@ export function WorkoutCard({ submission, onDelete, isAdmin, onPlay, itemName, o
                         )}
                     </div>
 
-                    {/* Content Area (Right) */}
-                    <div className="flex-1 flex flex-col justify-between p-2 sm:p-2.5 min-w-0">
+                    {/* Content Area (Right) - この部分がカード高さを決定 */}
+                    <div className="flex-1 flex flex-col justify-between p-2 sm:p-2.5 min-w-0 min-h-24 sm:min-h-28">
                         <div className="min-w-0 pr-6 relative"> {/* pr-6 for delete button space */}
                             {/* Title & Badge */}
                             <div className="flex items-center gap-2 flex-wrap mb-1">
