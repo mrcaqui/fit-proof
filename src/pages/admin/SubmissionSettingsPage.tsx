@@ -49,10 +49,10 @@ export default function SubmissionSettingsPage() {
     const [d_time, setDTime] = useState('19:00')
 
     // TargetDay form state
-    const [t_scope, setTScope] = useState<'monthly' | 'weekly' | 'daily'>('monthly')
+    const [t_scope, setTScope] = useState<'monthly' | 'weekly' | 'daily'>('weekly')
     const [t_days, setTDays] = useState<number[]>([])
     const [t_date, setTDate] = useState<string>(format(new Date(), 'yyyy-MM-dd'))
-    const [t_value, setTValue] = useState(true)
+    const [t_value, setTValue] = useState(false)
 
     // Calendar submission limit state
     const [pastSubmissionDays, setPastSubmissionDays] = useState<number>(0)
@@ -534,7 +534,6 @@ export default function SubmissionSettingsPage() {
                                         <Select value={t_scope} onValueChange={(v: any) => setTScope(v)}>
                                             <SelectTrigger><SelectValue /></SelectTrigger>
                                             <SelectContent>
-                                                <SelectItem value="monthly">月間 (デフォルト)</SelectItem>
                                                 <SelectItem value="weekly">曜日指定</SelectItem>
                                                 <SelectItem value="daily">特定の日</SelectItem>
                                             </SelectContent>
@@ -545,8 +544,8 @@ export default function SubmissionSettingsPage() {
                                         <Select value={String(t_value)} onValueChange={v => setTValue(v === 'true')}>
                                             <SelectTrigger><SelectValue /></SelectTrigger>
                                             <SelectContent>
-                                                <SelectItem value="true">投稿対象 (トレーニング日)</SelectItem>
                                                 <SelectItem value="false">対象外 (休息日)</SelectItem>
+                                                <SelectItem value="true">投稿対象 (トレーニング日)</SelectItem>
                                             </SelectContent>
                                         </Select>
                                     </div>
