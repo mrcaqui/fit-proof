@@ -23,6 +23,7 @@ export interface Database {
                     shield_stock: number
                     perfect_week_count: number
                     revival_success_count: number
+                    gamification_settings: Record<string, unknown> | null
                 }
                 Insert: {
                     id: string
@@ -37,6 +38,7 @@ export interface Database {
                     shield_stock?: number
                     perfect_week_count?: number
                     revival_success_count?: number
+                    gamification_settings?: Record<string, unknown> | null
                 }
                 Update: {
                     id?: string
@@ -51,6 +53,7 @@ export interface Database {
                     shield_stock?: number
                     perfect_week_count?: number
                     revival_success_count?: number
+                    gamification_settings?: Record<string, unknown> | null
                 }
             }
             submission_items: {

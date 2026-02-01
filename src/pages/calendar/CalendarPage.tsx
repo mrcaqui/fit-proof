@@ -278,19 +278,25 @@ export default function CalendarPage() {
                     <div className="mx-1 sm:mx-0 px-4 py-3 bg-gradient-to-r from-primary/5 via-primary/10 to-primary/5 rounded-lg border space-y-2">
                         {/* 上段: ストリークと累積回数 - 均等配置 */}
                         <div className="flex items-center justify-between px-2">
-                            {/* ストリーク */}
-                            <Popover>
-                                <PopoverTrigger asChild>
-                                    <button className="flex items-center gap-2 font-bold text-lg hover:opacity-80 transition-opacity cursor-help">
-                                        <span className="text-xl">🔥</span>
-                                        <span>{gamification.state.currentStreak}日連続</span>
-                                    </button>
-                                </PopoverTrigger>
-                                <PopoverContent className="w-64 text-sm">
-                                    <p className="font-semibold mb-1">🔥 連続日数</p>
-                                    <p className="text-muted-foreground">投稿を続けた日数です。定休日はカウントされません。シールドやリバイバルで途切れを防げます！</p>
-                                </PopoverContent>
-                            </Popover>
+                            {/* ストリーク（連続日数） */}
+                            {gamification.settings.streak.enabled && (
+                                <Popover>
+                                    <PopoverTrigger asChild>
+                                        <button className="flex items-center gap-2 font-bold text-lg hover:opacity-80 transition-opacity cursor-help">
+                                            <span className="text-xl">🔥</span>
+                                            <span>{gamification.state.currentStreak}日連続</span>
+                                        </button>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="w-64 text-sm">
+                                        <p className="font-semibold mb-1">🔥 連続日数</p>
+                                        <p className="text-muted-foreground">
+                                            投稿を続けた日数です。定休日はカウントされません。
+                                            週{gamification.settings.straight.weekly_target}日達成でストレート獲得！
+                                            {gamification.settings.shield.enabled && ' シールドやリバイバルで途切れを防げます！'}
+                                        </p>
+                                    </PopoverContent>
+                                </Popover>
+                            )}
 
                             {/* 累積回数 */}
                             <Popover>
@@ -310,48 +316,61 @@ export default function CalendarPage() {
                         {/* 下段: シールド・ストレート・復活（Popoverで説明表示） - 均等配置 */}
                         <div className="flex items-center justify-between px-2 text-sm text-muted-foreground">
                             {/* シールド */}
-                            <Popover>
-                                <PopoverTrigger asChild>
-                                    <button className="flex items-center gap-1.5 cursor-help hover:opacity-80 transition-opacity">
-                                        <img src="/assets/shield.png" alt="シールド" className="w-10 h-10" />
-                                        <span className="font-semibold text-base">{gamification.state.shieldStock}</span>
-                                    </button>
-                                </PopoverTrigger>
-                                <PopoverContent className="w-64 text-sm">
-                                    <p className="font-semibold mb-1">🛡️ シールド</p>
-                                    <p className="text-muted-foreground">投稿を忘れた日に自動消費され、ストリークを守ります。7日連続達成でシールド+1獲得！</p>
-                                </PopoverContent>
-                            </Popover>
+                            {gamification.settings.shield.enabled && (
+                                <Popover>
+                                    <PopoverTrigger asChild>
+                                        <button className="flex items-center gap-1.5 cursor-help hover:opacity-80 transition-opacity">
+                                            <img src="/assets/shield.png" alt="シールド" className="w-10 h-10" />
+                                            <span className="font-semibold text-base">{gamification.state.shieldStock}</span>
+                                        </button>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="w-64 text-sm">
+                                        <p className="font-semibold mb-1">🛡️ シールド</p>
+                                        <p className="text-muted-foreground">
+                                            投稿を忘れた日に自動消費され、ストリークを守ります。
+                                            {gamification.settings.shield.condition_type === 'straight_count'
+                                                ? `ストレート${gamification.settings.shield.straight_count}回達成でシールド+1獲得！`
+                                                : '月の全対象日をストレート達成でシールド+1獲得！'}
+                                        </p>
+                                    </PopoverContent>
+                                </Popover>
+                            )}
 
-                            {/* ストレート達成（7日間シールドなし） */}
-                            <Popover>
-                                <PopoverTrigger asChild>
-                                    <button className="flex items-center gap-1.5 cursor-help hover:opacity-80 transition-opacity">
-                                        <img src="/assets/perfect_crown.png" alt="ストレート" className="w-10 h-10" />
-                                        <span className="font-semibold text-base">{gamification.state.perfectWeekCount}</span>
-                                    </button>
-                                </PopoverTrigger>
-                                <PopoverContent className="w-64 text-sm">
-                                    <p className="font-semibold mb-1">👑 ストレート達成</p>
-                                    <p className="text-muted-foreground">7日連続をシールドやリバイバルなしで達成した回数。真の継続力の証！</p>
-                                </PopoverContent>
-                            </Popover>
+                            {/* ストレート達成 */}
+                            {gamification.settings.straight.enabled && (
+                                <Popover>
+                                    <PopoverTrigger asChild>
+                                        <button className="flex items-center gap-1.5 cursor-help hover:opacity-80 transition-opacity">
+                                            <img src="/assets/perfect_crown.png" alt="ストレート" className="w-10 h-10" />
+                                            <span className="font-semibold text-base">{gamification.state.perfectWeekCount}</span>
+                                        </button>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="w-64 text-sm">
+                                        <p className="font-semibold mb-1">👑 ストレート達成</p>
+                                        <p className="text-muted-foreground">
+                                            週{gamification.settings.straight.weekly_target}日をシールドやリバイバルなしで達成した回数。真の継続力の証！
+                                        </p>
+                                    </PopoverContent>
+                                </Popover>
+                            )}
 
                             {/* リバイバル */}
-                            <Popover>
-                                <PopoverTrigger asChild>
-                                    <button className="flex items-center gap-1.5 cursor-help hover:opacity-80 transition-opacity">
-                                        <img src="/assets/revival_badge.png" alt="復活" className="w-10 h-10" />
-                                        <span className="font-semibold text-base">
-                                            {(workouts || []).filter(w => w.status === 'success' && w.is_revival === true).length}
-                                        </span>
-                                    </button>
-                                </PopoverTrigger>
-                                <PopoverContent className="w-64 text-sm">
-                                    <p className="font-semibold mb-1">🔥 リバイバル</p>
-                                    <p className="text-muted-foreground">過去の空白日を後から埋めてストリークを復活させた回数。諦めない心の証！</p>
-                                </PopoverContent>
-                            </Popover>
+                            {gamification.settings.revival.enabled && (
+                                <Popover>
+                                    <PopoverTrigger asChild>
+                                        <button className="flex items-center gap-1.5 cursor-help hover:opacity-80 transition-opacity">
+                                            <img src="/assets/revival_badge.png" alt="復活" className="w-10 h-10" />
+                                            <span className="font-semibold text-base">
+                                                {(workouts || []).filter(w => w.status === 'success' && w.is_revival === true).length}
+                                            </span>
+                                        </button>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="w-64 text-sm">
+                                        <p className="font-semibold mb-1">🔥 リバイバル</p>
+                                        <p className="text-muted-foreground">過去の空白日を後から埋めてストリークを復活させた回数。諦めない心の証！</p>
+                                    </PopoverContent>
+                                </Popover>
+                            )}
                         </div>
                     </div>
                 </>

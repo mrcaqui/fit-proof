@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { GamificationSettings, DEFAULT_GAMIFICATION_SETTINGS } from '@/types/gamification.types'
 import { useSubmissionRules } from '@/hooks/useSubmissionRules'
 import { useSubmissionItems } from '@/hooks/useSubmissionItems'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
-import { Plus, Trash2, Calendar as CalendarIcon, Clock } from 'lucide-react'
+import { Plus, Trash2, Calendar as CalendarIcon, Clock, Gamepad2 } from 'lucide-react'
 import {
     Select,
     SelectContent,
@@ -61,6 +62,10 @@ export default function SubmissionSettingsPage() {
     const [showDuplicateToUser, setShowDuplicateToUser] = useState<boolean>(false)
     const [isUpdatingCalendarSettings, setIsUpdatingCalendarSettings] = useState(false)
 
+    // Gamification settings state
+    const [gamificationSettings, setGamificationSettings] = useState<GamificationSettings>(DEFAULT_GAMIFICATION_SETTINGS)
+    const [isUpdatingGamification, setIsUpdatingGamification] = useState(false)
+
     // Fetch clients
     useEffect(() => {
         const fetchClients = async () => {
@@ -100,7 +105,28 @@ export default function SubmissionSettingsPage() {
                 setShowDuplicateToUser(data.show_duplicate_to_user ?? false)
             }
         }
+
+        const fetchGamificationSettings = async () => {
+            if (!selectedClientId) return
+
+            const { data, error } = await supabase
+                .from('profiles')
+                .select('gamification_settings')
+                .eq('id', selectedClientId)
+                .single() as { data: { gamification_settings: GamificationSettings | null } | null, error: any }
+
+            if (!error && data?.gamification_settings) {
+                setGamificationSettings({
+                    ...DEFAULT_GAMIFICATION_SETTINGS,
+                    ...data.gamification_settings
+                })
+            } else {
+                setGamificationSettings(DEFAULT_GAMIFICATION_SETTINGS)
+            }
+        }
+
         fetchCalendarSettings()
+        fetchGamificationSettings()
     }, [selectedClientId])
 
     const handleUpdateCalendarSettings = async () => {
@@ -121,6 +147,53 @@ export default function SubmissionSettingsPage() {
             alert('設定の保存に失敗しました: ' + error.message)
         }
         setIsUpdatingCalendarSettings(false)
+    }
+
+    // ゲーミフィケーション設定の保存
+    const handleUpdateGamificationSettings = async () => {
+        if (!selectedClientId) return
+
+        setIsUpdatingGamification(true)
+        const client = supabase.from('profiles') as any
+        const { error } = await client
+            .update({
+                gamification_settings: gamificationSettings
+            })
+            .eq('id', selectedClientId)
+
+        if (error) {
+            alert('ゲーミフィケーション設定の保存に失敗しました: ' + error.message)
+        }
+        setIsUpdatingGamification(false)
+    }
+
+    // ゲーミフィケーション設定のヘルパー関数
+    const updateStraightSettings = (updates: Partial<GamificationSettings['straight']>) => {
+        setGamificationSettings(prev => ({
+            ...prev,
+            straight: { ...prev.straight, ...updates }
+        }))
+    }
+
+    const updateShieldSettings = (updates: Partial<GamificationSettings['shield']>) => {
+        setGamificationSettings(prev => ({
+            ...prev,
+            shield: { ...prev.shield, ...updates }
+        }))
+    }
+
+    const updateRevivalSettings = (updates: Partial<GamificationSettings['revival']>) => {
+        setGamificationSettings(prev => ({
+            ...prev,
+            revival: { ...prev.revival, ...updates }
+        }))
+    }
+
+    const updateStreakSettings = (updates: Partial<GamificationSettings['streak']>) => {
+        setGamificationSettings(prev => ({
+            ...prev,
+            streak: { ...prev.streak, ...updates }
+        }))
     }
 
     const { items: submissionItems, refetch: refetchItems } = useSubmissionItems(selectedClientId)
@@ -379,7 +452,168 @@ export default function SubmissionSettingsPage() {
                     </Card>
                 </div>
 
-                {/* Submission Items Card */}
+                {/* Gamification Settings Card */}
+                <div className="space-y-6 md:col-span-1 xl:col-span-2">
+                    <Card className="border-primary/20 shadow-md">
+                        <CardHeader className="bg-primary/5 border-b">
+                            <CardTitle className="flex items-center gap-2 text-primary">
+                                <Gamepad2 className="w-5 h-5" /> ゲーミフィケーション
+                            </CardTitle>
+                            <CardDescription>
+                                ストリーク、シールド、ストレート達成などのゲーム要素を設定します。<br />
+                                無効にした項目はクライアントのカレンダー画面に表示されません。
+                            </CardDescription>
+                        </CardHeader>
+                        <CardContent className="space-y-6 pt-6">
+                            {/* ストレート達成 */}
+                            <div className="space-y-3 p-4 rounded-lg border bg-muted/10">
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-lg">👑</span>
+                                        <Label className="font-semibold">ストレート達成</Label>
+                                    </div>
+                                    <label className="flex items-center gap-2 cursor-pointer">
+                                        <input
+                                            type="checkbox"
+                                            checked={gamificationSettings.straight.enabled}
+                                            onChange={(e) => updateStraightSettings({ enabled: e.target.checked })}
+                                            className="w-4 h-4 rounded"
+                                        />
+                                        <span className="text-sm">表示する</span>
+                                    </label>
+                                </div>
+                                {gamificationSettings.straight.enabled && (
+                                    <div className="flex items-center gap-3 pl-7">
+                                        <Label className="text-sm text-muted-foreground">週</Label>
+                                        <Select
+                                            value={String(gamificationSettings.straight.weekly_target)}
+                                            onValueChange={(v) => updateStraightSettings({ weekly_target: Number(v) })}
+                                        >
+                                            <SelectTrigger className="w-20">
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {[1, 2, 3, 4, 5, 6, 7].map(n => (
+                                                    <SelectItem key={n} value={String(n)}>{n}</SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                        <Label className="text-sm text-muted-foreground">日達成でストレート獲得</Label>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* シールド */}
+                            <div className="space-y-3 p-4 rounded-lg border bg-muted/10">
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-lg">🛡️</span>
+                                        <Label className="font-semibold">シールド</Label>
+                                    </div>
+                                    <label className="flex items-center gap-2 cursor-pointer">
+                                        <input
+                                            type="checkbox"
+                                            checked={gamificationSettings.shield.enabled}
+                                            onChange={(e) => updateShieldSettings({ enabled: e.target.checked })}
+                                            className="w-4 h-4 rounded"
+                                        />
+                                        <span className="text-sm">表示する</span>
+                                    </label>
+                                </div>
+                                {gamificationSettings.shield.enabled && (
+                                    <div className="space-y-3 pl-7">
+                                        <label className="flex items-center gap-3 cursor-pointer">
+                                            <input
+                                                type="radio"
+                                                name="shieldCondition"
+                                                checked={gamificationSettings.shield.condition_type === 'straight_count'}
+                                                onChange={() => updateShieldSettings({ condition_type: 'straight_count' })}
+                                            />
+                                            <span className="text-sm">ストレート達成</span>
+                                            <Select
+                                                value={String(gamificationSettings.shield.straight_count)}
+                                                onValueChange={(v) => updateShieldSettings({ straight_count: Number(v) })}
+                                                disabled={gamificationSettings.shield.condition_type !== 'straight_count'}
+                                            >
+                                                <SelectTrigger className="w-16">
+                                                    <SelectValue />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    {[1, 2, 3, 4, 5].map(n => (
+                                                        <SelectItem key={n} value={String(n)}>{n}</SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                            <span className="text-sm">回でシールド獲得</span>
+                                        </label>
+                                        <label className="flex items-center gap-3 cursor-pointer">
+                                            <input
+                                                type="radio"
+                                                name="shieldCondition"
+                                                checked={gamificationSettings.shield.condition_type === 'monthly_all'}
+                                                onChange={() => updateShieldSettings({ condition_type: 'monthly_all' })}
+                                            />
+                                            <span className="text-sm">月の全対象日をストレート達成でシールド獲得</span>
+                                        </label>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* リバイバル */}
+                            <div className="space-y-3 p-4 rounded-lg border bg-muted/10">
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-lg">🔥</span>
+                                        <Label className="font-semibold">リバイバル</Label>
+                                    </div>
+                                    <label className="flex items-center gap-2 cursor-pointer">
+                                        <input
+                                            type="checkbox"
+                                            checked={gamificationSettings.revival.enabled}
+                                            onChange={(e) => updateRevivalSettings({ enabled: e.target.checked })}
+                                            className="w-4 h-4 rounded"
+                                        />
+                                        <span className="text-sm">表示する</span>
+                                    </label>
+                                </div>
+                                <p className="text-xs text-muted-foreground pl-7">
+                                    過去の空白日を後から埋めてストリークを復活させる機能
+                                </p>
+                            </div>
+
+                            {/* 連続日数 */}
+                            <div className="space-y-3 p-4 rounded-lg border bg-muted/10">
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-lg">📅</span>
+                                        <Label className="font-semibold">連続日数</Label>
+                                    </div>
+                                    <label className="flex items-center gap-2 cursor-pointer">
+                                        <input
+                                            type="checkbox"
+                                            checked={gamificationSettings.streak.enabled}
+                                            onChange={(e) => updateStreakSettings({ enabled: e.target.checked })}
+                                            className="w-4 h-4 rounded"
+                                        />
+                                        <span className="text-sm">表示する</span>
+                                    </label>
+                                </div>
+                                <p className="text-xs text-muted-foreground pl-7">
+                                    投稿を続けた日数。週明け月曜に前週のノルマ達成を判定、未達ならリセット
+                                </p>
+                            </div>
+
+                            <Button
+                                onClick={handleUpdateGamificationSettings}
+                                disabled={isUpdatingGamification}
+                                className="w-full"
+                            >
+                                {isUpdatingGamification ? '保存中...' : 'ゲーミフィケーション設定を保存'}
+                            </Button>
+                        </CardContent>
+                    </Card>
+                </div>
+
                 <div className="space-y-6 md:col-span-1 xl:col-span-2">
                     <Card className="border-primary/20 shadow-md">
                         <CardHeader className="bg-primary/5 border-b">

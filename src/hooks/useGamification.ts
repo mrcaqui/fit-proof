@@ -6,6 +6,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/context/AuthContext'
 import { Database } from '@/types/database.types'
+import { GamificationSettings, DEFAULT_GAMIFICATION_SETTINGS } from '@/types/gamification.types'
 import { calculateStreak, isRevivalCandidate, SubmissionForStreak } from '@/utils/streakCalculator'
 import { format, parseISO } from 'date-fns'
 
@@ -43,6 +44,7 @@ export function useGamification({ targetUserId, submissions, isRestDay }: UseGam
     const effectiveUserId = targetUserId || user?.id
 
     const [gamificationProfile, setGamificationProfile] = useState<Partial<Profile>>({})
+    const [gamificationSettings, setGamificationSettings] = useState<GamificationSettings>(DEFAULT_GAMIFICATION_SETTINGS)
     const [pendingNotifications, setPendingNotifications] = useState<PendingNotification[]>([])
     const [loading, setLoading] = useState(true)
 
@@ -53,12 +55,22 @@ export function useGamification({ targetUserId, submissions, isRestDay }: UseGam
         try {
             const { data, error } = await supabase
                 .from('profiles')
-                .select('total_reps, shield_stock, perfect_week_count, revival_success_count')
+                .select('total_reps, shield_stock, perfect_week_count, revival_success_count, gamification_settings')
                 .eq('id', effectiveUserId)
-                .single()
+                .single() as { data: { total_reps: number | null, shield_stock: number | null, perfect_week_count: number | null, revival_success_count: number | null, gamification_settings: GamificationSettings | null } | null, error: any }
 
             if (error) throw error
-            setGamificationProfile(data || {})
+            if (data) {
+                // gamification_settingsを除外してプロフィールにセット
+                const { gamification_settings, ...profileData } = data
+                setGamificationProfile(profileData as Partial<Profile>)
+                if (gamification_settings) {
+                    setGamificationSettings({
+                        ...DEFAULT_GAMIFICATION_SETTINGS,
+                        ...gamification_settings
+                    })
+                }
+            }
         } catch (err) {
             console.error('Failed to fetch gamification data:', err)
         } finally {
@@ -256,6 +268,7 @@ export function useGamification({ targetUserId, submissions, isRestDay }: UseGam
 
     return {
         state,
+        settings: gamificationSettings,
         loading,
         isShieldDay,
         isRevivalDay,
