@@ -223,6 +223,7 @@ export function SwipeableWorkoutView({
                     onMarkAsRead={isMain ? onMarkAsRead : undefined}
                     itemName={item?.name}
                     deadlineMode={deadlineMode}
+                    isDuplicate={s.video_hash ? (workouts || []).some(w => w.id !== s.id && w.video_hash === s.video_hash) : false}
                   />
                 )
               })}

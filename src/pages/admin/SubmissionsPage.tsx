@@ -17,8 +17,10 @@ type Submission = {
     thumbnail_url: string | null
     duration: number | null
     comment_text: string | null
-    status: 'success' | 'fail' | 'excused'
+    status: 'success' | 'fail' | 'excused' | null
     created_at: string
+    video_size: number | null
+    video_hash: string | null
     profiles?: {
         display_name: string | null
     }
@@ -182,9 +184,15 @@ export default function SubmissionsPage() {
                                     {format(new Date(submission.created_at), 'yyyy/MM/dd HH:mm', { locale: ja })}
                                 </div>
                                 <div className="flex items-center gap-2 text-sm">
-                                    {getStatusIcon(submission.status)}
-                                    <span className="capitalize">{submission.status}</span>
+                                    {getStatusIcon(submission.status || '')}
+                                    <span className="capitalize">{submission.status || 'pending'}</span>
                                 </div>
+                                {submission.video_hash && submissions.some(s => s.id !== submission.id && s.user_id === submission.user_id && s.video_hash === submission.video_hash) && (
+                                    <div className="flex items-center gap-1 text-[11px] font-bold text-destructive bg-destructive/10 p-1.5 rounded-md mt-2">
+                                        <AlertCircle className="h-3 w-3" />
+                                        <span>重複の可能性（同じ動画）</span>
+                                    </div>
+                                )}
                             </CardContent>
                         </Card>
                     ))}

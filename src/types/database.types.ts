@@ -94,6 +94,8 @@ export interface Database {
                     is_late: boolean
                     reps: number | null
                     is_revival: boolean
+                    video_size: number | null
+                    video_hash: string | null
                 }
                 Insert: {
                     id?: number
@@ -111,6 +113,8 @@ export interface Database {
                     is_late?: boolean
                     reps?: number | null
                     is_revival?: boolean
+                    video_size?: number | null
+                    video_hash?: string | null
                 }
                 Update: {
                     id?: number
@@ -128,6 +132,8 @@ export interface Database {
                     is_late?: boolean
                     reps?: number | null
                     is_revival?: boolean
+                    video_size?: number | null
+                    video_hash?: string | null
                 }
             }
             submission_rules: {

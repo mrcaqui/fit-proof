@@ -36,6 +36,8 @@ export function PendingUploadCard({ item, targetDate, onSuccess, isLate = false,
         error: string | null
         success: boolean
         isUploading: boolean
+        hash: string | null
+        arrayBuffer: ArrayBuffer | null
     }>({
         file: null,
         thumbnail: null,
@@ -43,7 +45,9 @@ export function PendingUploadCard({ item, targetDate, onSuccess, isLate = false,
         progress: 0,
         error: null,
         success: false,
-        isUploading: false
+        isUploading: false,
+        hash: null,
+        arrayBuffer: null
     })
 
     const updateState = (newState: Partial<typeof state>) => {
@@ -68,6 +72,14 @@ export function PendingUploadCard({ item, targetDate, onSuccess, isLate = false,
         return `${mins}:${secs.toString().padStart(2, '0')}`
     }
 
+    const calculateHash = async (file: File): Promise<{ hash: string; arrayBuffer: ArrayBuffer }> => {
+        const arrayBuffer = await file.arrayBuffer()
+        const hashBuffer = await crypto.subtle.digest('SHA-256', arrayBuffer)
+        const hashArray = Array.from(new Uint8Array(hashBuffer))
+        const hash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
+        return { hash, arrayBuffer }
+    }
+
     const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const selectedFile = e.target.files?.[0]
         updateState({ error: null, success: false, thumbnail: null, duration: null })
@@ -87,11 +99,20 @@ export function PendingUploadCard({ item, targetDate, onSuccess, isLate = false,
         updateState({ file: selectedFile, thumbnail: null, duration: null, error: null, success: false })
 
         try {
-            const [thumbUrl, duration] = await Promise.all([
+            const [thumbUrl, duration, hashResult] = await Promise.all([
                 generateThumbnail(selectedFile).catch(() => null),
-                getVideoDuration(selectedFile).catch(() => null)
+                getVideoDuration(selectedFile).catch(() => null),
+                calculateHash(selectedFile).catch(err => {
+                    console.error('Hash calculation failed:', err)
+                    return null
+                })
             ])
-            updateState({ thumbnail: thumbUrl, duration })
+            updateState({
+                thumbnail: thumbUrl,
+                duration,
+                hash: hashResult?.hash || null,
+                arrayBuffer: hashResult?.arrayBuffer || null
+            })
         } catch (err) {
             console.error('Metadata extraction failed:', err)
         }
@@ -113,7 +134,6 @@ export function PendingUploadCard({ item, targetDate, onSuccess, isLate = false,
             const timestamp = Date.now()
             const fileExtension = state.file.name.split('.').pop()
             const key = `uploads/${user.id}/${timestamp}.${fileExtension}`
-            const arrayBuffer = await state.file.arrayBuffer()
             const targetDateStr = format(targetDate, 'yyyy-MM-dd')
 
             // 既存のレコードを検索
@@ -148,7 +168,7 @@ export function PendingUploadCard({ item, targetDate, onSuccess, isLate = false,
             await r2Client.send(new PutObjectCommand({
                 Bucket: R2_BUCKET_NAME,
                 Key: key,
-                Body: new Uint8Array(arrayBuffer),
+                Body: new Uint8Array(state.arrayBuffer!),
                 ContentType: state.file.type,
             }))
 
@@ -166,7 +186,9 @@ export function PendingUploadCard({ item, targetDate, onSuccess, isLate = false,
                     submission_item_id: item.id,
                     file_name: state.file.name,
                     duration: state.duration ? Math.round(state.duration) : null,
-                    is_late: isLate
+                    is_late: isLate,
+                    video_size: state.file.size,
+                    video_hash: state.hash
                 } as any)
 
             if (dbError) throw new Error('Failed to save submission record')
@@ -214,8 +236,8 @@ export function PendingUploadCard({ item, targetDate, onSuccess, isLate = false,
                                 >
                                     <X className="w-4 h-4" />
                                 </Button>
-                                <Button size="sm" onClick={handleUpload} className="h-7 text-xs">
-                                    <Upload className="w-3 h-3 mr-1" /> アップロード
+                                <Button size="sm" onClick={handleUpload} className="h-7 text-xs" disabled={!state.hash}>
+                                    <Upload className="w-3 h-3 mr-1" /> {!state.hash ? '計算中...' : 'アップロード'}
                                 </Button>
                             </>
                         )}

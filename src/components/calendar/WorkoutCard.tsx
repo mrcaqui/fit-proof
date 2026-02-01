@@ -7,6 +7,7 @@ import {
     Clock,
     Trash2,
     Loader2,
+    AlertCircle,
     RotateCcw,
     MessageSquare,
     Send
@@ -34,9 +35,10 @@ interface WorkoutCardProps {
     onDeleteComment?: (commentId: string) => Promise<any>
     onMarkAsRead?: (commentId: string) => Promise<any>
     deadlineMode?: 'none' | 'mark' | 'block'
+    isDuplicate?: boolean
 }
 
-export function WorkoutCard({ submission, onDelete, isAdmin, onPlay, itemName, onUpdateStatus, onAddComment, onDeleteComment, onMarkAsRead, deadlineMode = 'none' }: WorkoutCardProps) {
+export function WorkoutCard({ submission, onDelete, isAdmin, onPlay, itemName, onUpdateStatus, onAddComment, onDeleteComment, onMarkAsRead, deadlineMode = 'none', isDuplicate }: WorkoutCardProps) {
     const [isDeleting, setIsDeleting] = useState(false)
     const [commentText, setCommentText] = useState((submission as any).admin_comments?.[0]?.content || '')
     const [isCommenting, setIsCommenting] = useState(false)
@@ -384,6 +386,13 @@ export function WorkoutCard({ submission, onDelete, isAdmin, onPlay, itemName, o
                                                 </div>
                                             </PopoverContent>
                                         </Popover>
+                                    </div>
+                                )}
+
+                                {isDuplicate && (
+                                    <div className="flex items-center gap-1 text-[10px] font-bold text-destructive bg-destructive/10 p-1 rounded-md w-fit">
+                                        <AlertCircle className="h-2.5 w-2.5" />
+                                        <span>重複の可能性</span>
                                     </div>
                                 )}
 

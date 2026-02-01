@@ -34,7 +34,9 @@ export function UploadModal({ targetDate, onClose, onSuccess, items, completedSu
         progress: number,
         error: string | null,
         success: boolean,
-        isUploading: boolean
+        isUploading: boolean,
+        hash: string | null,
+        arrayBuffer: ArrayBuffer | null
     }>>({})
 
     const fileInputRefs = useRef<Record<number | string, HTMLInputElement | null>>({})
@@ -51,7 +53,7 @@ export function UploadModal({ targetDate, onClose, onSuccess, items, completedSu
     const updateState = (id: number | string, newState: Partial<typeof uploadingState[number]>) => {
         setUploadingState(prev => ({
             ...prev,
-            [id]: { ...(prev[id] || { file: null, thumbnail: null, duration: null, progress: 0, error: null, success: false, isUploading: false }), ...newState }
+            [id]: { ...(prev[id] || { file: null, thumbnail: null, duration: null, progress: 0, error: null, success: false, isUploading: false, hash: null, arrayBuffer: null }), ...newState }
         }))
     }
 
@@ -65,6 +67,14 @@ export function UploadModal({ targetDate, onClose, onSuccess, items, completedSu
             }
             video.src = URL.createObjectURL(file)
         })
+    }
+
+    const calculateHash = async (file: File): Promise<{ hash: string; arrayBuffer: ArrayBuffer }> => {
+        const arrayBuffer = await file.arrayBuffer()
+        const hashBuffer = await crypto.subtle.digest('SHA-256', arrayBuffer)
+        const hashArray = Array.from(new Uint8Array(hashBuffer))
+        const hash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
+        return { hash, arrayBuffer }
     }
 
     const formatDuration = (seconds: number) => {
@@ -92,8 +102,8 @@ export function UploadModal({ targetDate, onClose, onSuccess, items, completedSu
         updateState(itemId, { file: selectedFile, thumbnail: null, duration: null, error: null, success: false })
 
         try {
-            // generateThumbnailとgetVideoDurationを並行実行
-            const [thumbUrl, duration] = await Promise.all([
+            // generateThumbnail, getVideoDuration, calculateHash を並行実行
+            const [thumbUrl, duration, hashResult] = await Promise.all([
                 generateThumbnail(selectedFile).catch(err => {
                     console.error('Thumbnail generation failed:', err)
                     return null
@@ -101,10 +111,19 @@ export function UploadModal({ targetDate, onClose, onSuccess, items, completedSu
                 getVideoDuration(selectedFile).catch(err => {
                     console.error('Duration extraction failed:', err)
                     return null
+                }),
+                calculateHash(selectedFile).catch(err => {
+                    console.error('Hash calculation failed:', err)
+                    return null
                 })
             ])
 
-            updateState(itemId, { thumbnail: thumbUrl, duration })
+            updateState(itemId, {
+                thumbnail: thumbUrl,
+                duration,
+                hash: hashResult?.hash || null,
+                arrayBuffer: hashResult?.arrayBuffer || null
+            })
         } catch (err) {
             console.error('Metadata extraction failed:', err)
         }
@@ -120,7 +139,6 @@ export function UploadModal({ targetDate, onClose, onSuccess, items, completedSu
             const timestamp = Date.now()
             const fileExtension = state.file.name.split('.').pop()
             const key = `uploads/${user.id}/${timestamp}.${fileExtension}`
-            const arrayBuffer = await state.file.arrayBuffer()
 
             const targetDateStr = format(targetDate, 'yyyy-MM-dd')
             const normalizedItemId = typeof itemId === 'number' ? itemId : null
@@ -159,13 +177,19 @@ export function UploadModal({ targetDate, onClose, onSuccess, items, completedSu
             await r2Client.send(new PutObjectCommand({
                 Bucket: R2_BUCKET_NAME,
                 Key: key,
-                Body: new Uint8Array(arrayBuffer),
+                Body: new Uint8Array(state.arrayBuffer!),
                 ContentType: state.file.type,
             }))
 
             updateState(itemId, { progress: 100 })
 
-            const { error: dbError } = await supabase
+            console.log('[Upload Debug] Saving submission:', {
+                video_size: state.file.size,
+                video_hash: state.hash,
+                file_name: state.file.name
+            })
+
+            const { error: dbError, data: dbData } = await supabase
                 .from('submissions')
                 .insert({
                     user_id: user.id,
@@ -177,8 +201,13 @@ export function UploadModal({ targetDate, onClose, onSuccess, items, completedSu
                     submission_item_id: normalizedItemId,
                     file_name: state.file.name,
                     duration: state.duration ? Math.round(state.duration) : null,
-                    is_late: isLate
+                    is_late: isLate,
+                    video_size: state.file.size,
+                    video_hash: state.hash
                 } as any)
+                .select()
+
+            console.log('[Upload Debug] Database response:', { dbError, dbData })
 
             if (dbError) throw new Error('Failed to save submission record')
 
@@ -230,8 +259,8 @@ export function UploadModal({ targetDate, onClose, onSuccess, items, completedSu
                         )}
                     </div>
                     {state.file && !state.isUploading && !state.success && !isBlocked && (
-                        <Button size="sm" onClick={() => handleUpload(itemId)} className="h-8">
-                            <Upload className="w-3 h-3 mr-1" /> アップロード
+                        <Button size="sm" onClick={() => handleUpload(itemId)} className="h-8" disabled={!state.hash}>
+                            <Upload className="w-3 h-3 mr-1" /> {!state.hash ? '計算中...' : 'アップロード'}
                         </Button>
                     )}
                 </div>
