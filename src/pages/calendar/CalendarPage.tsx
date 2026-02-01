@@ -40,7 +40,7 @@ export default function CalendarPage() {
         }
         return undefined
     })
-    const [clients, setClients] = useState<{ id: string; display_name: string | null; past_submission_days: number; future_submission_days: number; deadline_mode: 'none' | 'mark' | 'block' }[]>([])
+    const [clients, setClients] = useState<{ id: string; display_name: string | null; past_submission_days: number; future_submission_days: number; deadline_mode: 'none' | 'mark' | 'block'; show_duplicate_to_user: boolean }[]>([])
     const [selectedVideo, setSelectedVideo] = useState<string | null>(null)
 
     // Determine whose rules to fetch: selected user for admin, or self for client
@@ -153,7 +153,7 @@ export default function CalendarPage() {
             const fetchClients = async () => {
                 const { data, error } = await supabase
                     .from('profiles')
-                    .select('id, display_name, past_submission_days, future_submission_days, deadline_mode')
+                    .select('id, display_name, past_submission_days, future_submission_days, deadline_mode, show_duplicate_to_user')
                     .eq('role', 'client')
                 if (!error && data) {
                     // Sort clients by display_name
@@ -615,6 +615,10 @@ export default function CalendarPage() {
                 deadlineMode={(() => {
                     const clientProfile = selectedClientId ? clients.find(c => c.id === selectedClientId) : null
                     return clientProfile?.deadline_mode ?? (profile as any)?.deadline_mode ?? 'none'
+                })()}
+                showDuplicateToUser={(() => {
+                    const clientProfile = selectedClientId ? clients.find(c => c.id === selectedClientId) : null
+                    return clientProfile?.show_duplicate_to_user ?? (profile as any)?.show_duplicate_to_user ?? false
                 })()}
             />
 

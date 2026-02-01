@@ -35,10 +35,11 @@ interface WorkoutCardProps {
     onDeleteComment?: (commentId: string) => Promise<any>
     onMarkAsRead?: (commentId: string) => Promise<any>
     deadlineMode?: 'none' | 'mark' | 'block'
-    isDuplicate?: boolean
+    duplicateType?: 'hash' | 'duration' | null
+    duplicateInfo?: { targetDate: string; fileName: string } | null
 }
 
-export function WorkoutCard({ submission, onDelete, isAdmin, onPlay, itemName, onUpdateStatus, onAddComment, onDeleteComment, onMarkAsRead, deadlineMode = 'none', isDuplicate }: WorkoutCardProps) {
+export function WorkoutCard({ submission, onDelete, isAdmin, onPlay, itemName, onUpdateStatus, onAddComment, onDeleteComment, onMarkAsRead, deadlineMode = 'none', duplicateType, duplicateInfo }: WorkoutCardProps) {
     const [isDeleting, setIsDeleting] = useState(false)
     const [commentText, setCommentText] = useState((submission as any).admin_comments?.[0]?.content || '')
     const [isCommenting, setIsCommenting] = useState(false)
@@ -389,11 +390,27 @@ export function WorkoutCard({ submission, onDelete, isAdmin, onPlay, itemName, o
                                     </div>
                                 )}
 
-                                {isDuplicate && (
-                                    <div className="flex items-center gap-1 text-[10px] font-bold text-destructive bg-destructive/10 p-1 rounded-md w-fit">
-                                        <AlertCircle className="h-2.5 w-2.5" />
-                                        <span>重複の可能性</span>
-                                    </div>
+                                {duplicateType && (
+                                    <Popover>
+                                        <PopoverTrigger asChild>
+                                            <div className="flex items-center gap-1 text-[10px] font-bold text-destructive bg-destructive/10 p-1 rounded-md w-fit cursor-pointer active:opacity-60 transition-opacity">
+                                                <AlertCircle className="h-2.5 w-2.5" />
+                                                <span>重複の可能性</span>
+                                            </div>
+                                        </PopoverTrigger>
+                                        <PopoverContent side="top" className="w-auto p-2 bg-popover/95 backdrop-blur-sm border shadow-xl z-[200]">
+                                            <div className="space-y-1">
+                                                <p className="text-[11px] font-mono leading-none">
+                                                    {duplicateType === 'hash' ? 'Hash値一致（同一動画）' : '同じ動画時間（リサイズされた可能性）'}
+                                                </p>
+                                                {duplicateInfo && (
+                                                    <p className="text-[10px] text-muted-foreground leading-tight">
+                                                        重複元: {duplicateInfo.targetDate} / {duplicateInfo.fileName || '不明'}
+                                                    </p>
+                                                )}
+                                            </div>
+                                        </PopoverContent>
+                                    </Popover>
                                 )}
 
                                 {/* Admin Comment Indicator (Client side) */}

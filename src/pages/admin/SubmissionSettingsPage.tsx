@@ -58,6 +58,7 @@ export default function SubmissionSettingsPage() {
     const [pastSubmissionDays, setPastSubmissionDays] = useState<number>(0)
     const [futureSubmissionDays, setFutureSubmissionDays] = useState<number>(0)
     const [deadlineMode, setDeadlineMode] = useState<'none' | 'mark' | 'block'>('none')
+    const [showDuplicateToUser, setShowDuplicateToUser] = useState<boolean>(false)
     const [isUpdatingCalendarSettings, setIsUpdatingCalendarSettings] = useState(false)
 
     // Fetch clients
@@ -88,14 +89,15 @@ export default function SubmissionSettingsPage() {
 
             const { data, error } = await supabase
                 .from('profiles')
-                .select('past_submission_days, future_submission_days, deadline_mode')
+                .select('past_submission_days, future_submission_days, deadline_mode, show_duplicate_to_user')
                 .eq('id', selectedClientId)
-                .single() as { data: { past_submission_days: number | null, future_submission_days: number | null, deadline_mode: 'none' | 'mark' | 'block' | null } | null, error: any }
+                .single() as { data: { past_submission_days: number | null, future_submission_days: number | null, deadline_mode: 'none' | 'mark' | 'block' | null, show_duplicate_to_user: boolean | null } | null, error: any }
 
             if (!error && data) {
                 setPastSubmissionDays(data.past_submission_days ?? 0)
                 setFutureSubmissionDays(data.future_submission_days ?? 0)
                 setDeadlineMode(data.deadline_mode ?? 'none')
+                setShowDuplicateToUser(data.show_duplicate_to_user ?? false)
             }
         }
         fetchCalendarSettings()
@@ -110,7 +112,8 @@ export default function SubmissionSettingsPage() {
             .update({
                 past_submission_days: pastSubmissionDays,
                 future_submission_days: futureSubmissionDays,
-                deadline_mode: deadlineMode
+                deadline_mode: deadlineMode,
+                show_duplicate_to_user: showDuplicateToUser
             })
             .eq('id', selectedClientId)
 
@@ -308,6 +311,63 @@ export default function SubmissionSettingsPage() {
                                 </div>
                             </div>
 
+                            <Button
+                                onClick={handleUpdateCalendarSettings}
+                                disabled={isUpdatingCalendarSettings}
+                                className="w-full"
+                            >
+                                {isUpdatingCalendarSettings ? '保存中...' : '設定を保存'}
+                            </Button>
+                        </CardContent>
+                    </Card>
+                </div>
+
+                {/* Duplicate Display Settings Card */}
+                <div className="space-y-6 md:col-span-1 xl:col-span-2">
+                    <Card className="border-primary/20 shadow-md">
+                        <CardHeader className="bg-primary/5 border-b">
+                            <CardTitle className="flex items-center gap-2 text-primary">
+                                <Settings className="w-5 h-5" /> 重複の表示
+                            </CardTitle>
+                            <CardDescription>
+                                同じ動画・同じ長さの動画がアップロードされた場合の「重複の可能性」表示をクライアントに見せるかどうかを設定します。
+                            </CardDescription>
+                        </CardHeader>
+                        <CardContent className="space-y-4 pt-6">
+                            <div className="space-y-2">
+                                <label className="flex items-start gap-3 p-3 rounded-lg border cursor-pointer hover:bg-muted/50 transition-colors">
+                                    <input
+                                        type="radio"
+                                        name="showDuplicateToUser"
+                                        value="false"
+                                        checked={!showDuplicateToUser}
+                                        onChange={() => setShowDuplicateToUser(false)}
+                                        className="mt-1"
+                                    />
+                                    <div>
+                                        <div className="font-medium">管理者のみ表示（デフォルト）</div>
+                                        <p className="text-xs text-muted-foreground">
+                                            重複の可能性はクライアントには表示されません
+                                        </p>
+                                    </div>
+                                </label>
+                                <label className="flex items-start gap-3 p-3 rounded-lg border cursor-pointer hover:bg-muted/50 transition-colors">
+                                    <input
+                                        type="radio"
+                                        name="showDuplicateToUser"
+                                        value="true"
+                                        checked={showDuplicateToUser}
+                                        onChange={() => setShowDuplicateToUser(true)}
+                                        className="mt-1"
+                                    />
+                                    <div>
+                                        <div className="font-medium">クライアントにも表示</div>
+                                        <p className="text-xs text-muted-foreground">
+                                            重複の可能性がクライアント側にも表示されます
+                                        </p>
+                                    </div>
+                                </label>
+                            </div>
                             <Button
                                 onClick={handleUpdateCalendarSettings}
                                 disabled={isUpdatingCalendarSettings}

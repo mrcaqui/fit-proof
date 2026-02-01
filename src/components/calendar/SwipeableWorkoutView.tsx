@@ -30,6 +30,7 @@ interface SwipeableWorkoutViewProps {
   isRestDay?: boolean
   isLate?: boolean
   deadlineMode?: 'none' | 'mark' | 'block'
+  showDuplicateToUser?: boolean
 }
 
 export function SwipeableWorkoutView({
@@ -50,7 +51,8 @@ export function SwipeableWorkoutView({
   futureAllowed = 0,
   isRestDay = false,
   isLate = false,
-  deadlineMode = 'none'
+  deadlineMode = 'none',
+  showDuplicateToUser = false
 }: SwipeableWorkoutViewProps) {
   const CARD_WIDTH_PERCENT = 85
   const PEEK_WIDTH_PERCENT = (100 - CARD_WIDTH_PERCENT) / 2
@@ -223,7 +225,45 @@ export function SwipeableWorkoutView({
                     onMarkAsRead={isMain ? onMarkAsRead : undefined}
                     itemName={item?.name}
                     deadlineMode={deadlineMode}
-                    isDuplicate={s.video_hash ? (workouts || []).some(w => w.id !== s.id && w.video_hash === s.video_hash) : false}
+                    {...(() => {
+                      // 管理者またはshowDuplicateToUser=trueの場合のみ重複チェックを実行
+                      if (!isAdmin && !showDuplicateToUser) {
+                        return { duplicateType: null, duplicateInfo: null }
+                      }
+
+                      // 重複動画を探す
+                      const allWorkouts = workouts || []
+
+                      // Hash一致チェック（完全に同じ動画）
+                      if (s.video_hash) {
+                        const hashMatch = allWorkouts.find(w => w.id !== s.id && w.video_hash === s.video_hash)
+                        if (hashMatch) {
+                          return {
+                            duplicateType: 'hash' as const,
+                            duplicateInfo: {
+                              targetDate: hashMatch.target_date || '日付不明',
+                              fileName: (hashMatch as any).file_name || '不明'
+                            }
+                          }
+                        }
+                      }
+
+                      // Duration一致チェック（Hashは違うが時間が同じ = リサイズされた可能性）
+                      if (s.duration && s.duration > 0) {
+                        const durationMatch = allWorkouts.find(w => w.id !== s.id && w.video_hash !== s.video_hash && w.duration === s.duration)
+                        if (durationMatch) {
+                          return {
+                            duplicateType: 'duration' as const,
+                            duplicateInfo: {
+                              targetDate: durationMatch.target_date || '日付不明',
+                              fileName: (durationMatch as any).file_name || '不明'
+                            }
+                          }
+                        }
+                      }
+
+                      return { duplicateType: null, duplicateInfo: null }
+                    })()}
                   />
                 )
               })}
