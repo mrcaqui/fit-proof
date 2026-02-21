@@ -1,6 +1,12 @@
 # docs for self-help
 docs\メモ.md
 
+# Claude Code plan files
+plans/
+
+# Claude Code local settings
+.claude/
+
 # Logs
 logs
 *.log
