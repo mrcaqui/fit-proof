@@ -4,13 +4,13 @@ import { Database } from '@/types/database.types'
 
 type SubmissionItem = Database['public']['Tables']['submission_items']['Row']
 
-export function useSubmissionItems(clientId?: string) {
+export function useSubmissionItems(userId?: string) {
     const [items, setItems] = useState<SubmissionItem[]>([])
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
 
     const fetchItems = useCallback(async () => {
-        if (!clientId) {
+        if (!userId) {
             setLoading(false)
             setItems([])
             return
@@ -21,7 +21,7 @@ export function useSubmissionItems(clientId?: string) {
             const { data, error } = await supabase
                 .from('submission_items')
                 .select('*')
-                .eq('client_id', clientId)
+                .eq('user_id', userId)
                 .order('created_at', { ascending: true })
 
             if (error) throw error
@@ -31,23 +31,23 @@ export function useSubmissionItems(clientId?: string) {
         } finally {
             setLoading(false)
         }
-    }, [clientId])
+    }, [userId])
 
     useEffect(() => {
         fetchItems()
 
-        if (!clientId) return
+        if (!userId) return
 
         // リアルタイム購読の設定
         const channel = supabase
-            .channel(`submission-items-${clientId}`)
+            .channel(`submission-items-${userId}`)
             .on(
                 'postgres_changes',
                 {
                     event: '*',
                     schema: 'public',
                     table: 'submission_items',
-                    filter: `client_id=eq.${clientId}`
+                    filter: `user_id=eq.${userId}`
                 },
                 () => {
                     fetchItems()
@@ -58,7 +58,7 @@ export function useSubmissionItems(clientId?: string) {
         return () => {
             supabase.removeChannel(channel)
         }
-    }, [fetchItems, clientId])
+    }, [fetchItems, userId])
 
     return { items, loading, error, refetch: fetchItems }
 }

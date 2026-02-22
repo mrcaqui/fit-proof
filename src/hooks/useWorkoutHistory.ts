@@ -279,7 +279,7 @@ export function useWorkoutHistory(targetUserId?: string) {
                 .from('admin_comments') as any)
                 .upsert({
                     submission_id: submissionId,
-                    admin_id: user.id,
+                    user_id: user.id,
                     content,
                     read_at: null
                 }, { onConflict: 'submission_id' })

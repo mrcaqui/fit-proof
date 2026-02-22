@@ -5,13 +5,13 @@ import { isSameDay, parseISO } from 'date-fns'
 
 type SubmissionRule = Database['public']['Tables']['submission_rules']['Row']
 
-export function useSubmissionRules(clientId?: string) {
+export function useSubmissionRules(userId?: string) {
     const [rules, setRules] = useState<SubmissionRule[]>([])
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
 
     const fetchRules = useCallback(async () => {
-        if (!clientId) {
+        if (!userId) {
             setLoading(false)
             return
         }
@@ -21,7 +21,7 @@ export function useSubmissionRules(clientId?: string) {
             const { data, error } = await supabase
                 .from('submission_rules')
                 .select('*')
-                .eq('client_id', clientId)
+                .eq('user_id', userId)
                 .order('created_at', { ascending: false })
 
             if (error) throw error
@@ -31,23 +31,23 @@ export function useSubmissionRules(clientId?: string) {
         } finally {
             setLoading(false)
         }
-    }, [clientId])
+    }, [userId])
 
     useEffect(() => {
         fetchRules()
 
-        if (!clientId) return
+        if (!userId) return
 
         // リアルタイム購読の設定
         const channel = supabase
-            .channel(`submission-rules-${clientId}`)
+            .channel(`submission-rules-${userId}`)
             .on(
                 'postgres_changes',
                 {
                     event: '*',
                     schema: 'public',
                     table: 'submission_rules',
-                    filter: `client_id=eq.${clientId}`
+                    filter: `user_id=eq.${userId}`
                 },
                 () => {
                     fetchRules()
@@ -58,7 +58,7 @@ export function useSubmissionRules(clientId?: string) {
         return () => {
             supabase.removeChannel(channel)
         }
-    }, [fetchRules, clientId])
+    }, [fetchRules, userId])
 
     const getRuleForDate = useCallback((date: Date, type: 'deadline' | 'target_day') => {
         if (!rules.length) return null

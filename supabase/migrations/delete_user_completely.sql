@@ -57,16 +57,16 @@ BEGIN
 
   -- admin_commentsを削除（対象ユーザーが管理者として投稿したコメント）
   DELETE FROM admin_comments
-  WHERE admin_id = v_user_id;
+  WHERE user_id = v_user_id;
 
   -- submissionsを削除
   DELETE FROM submissions WHERE user_id = v_user_id;
 
   -- submission_itemsを削除
-  DELETE FROM submission_items WHERE client_id = v_user_id;
+  DELETE FROM submission_items WHERE user_id = v_user_id;
 
   -- submission_rulesを削除
-  DELETE FROM submission_rules WHERE client_id = v_user_id;
+  DELETE FROM submission_rules WHERE user_id = v_user_id;
 
   -- profilesを削除
   DELETE FROM profiles WHERE id = v_user_id;

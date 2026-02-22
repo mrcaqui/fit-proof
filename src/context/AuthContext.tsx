@@ -102,6 +102,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     past_submission_days: 7,
                     future_submission_days: 7,
                     deadline_mode: 'none',
+                    show_duplicate_to_user: false,
                     total_reps: 0,
                     shield_stock: 0,
                     perfect_week_count: 0,
@@ -129,6 +130,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     past_submission_days: 7,
                     future_submission_days: 7,
                     deadline_mode: 'none',
+                    show_duplicate_to_user: false,
                     total_reps: 0,
                     shield_stock: 0,
                     perfect_week_count: 0,
@@ -164,6 +166,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             } else {
                 setProfile(null)
             }
+
+            // authorized_users.user_id を紐付け（未設定の場合のみ）
+            await (supabase as any)
+                .from('authorized_users')
+                .update({ user_id: userId })
+                .eq('email', email)
+                .is('user_id', null)
         } finally {
             setLoading(false)
         }

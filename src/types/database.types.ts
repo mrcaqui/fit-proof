@@ -19,6 +19,7 @@ export interface Database {
                     past_submission_days: number
                     future_submission_days: number
                     deadline_mode: 'none' | 'mark' | 'block'
+                    show_duplicate_to_user: boolean
                     total_reps: number
                     shield_stock: number
                     perfect_week_count: number
@@ -34,6 +35,7 @@ export interface Database {
                     past_submission_days?: number
                     future_submission_days?: number
                     deadline_mode?: 'none' | 'mark' | 'block'
+                    show_duplicate_to_user?: boolean
                     total_reps?: number
                     shield_stock?: number
                     perfect_week_count?: number
@@ -49,6 +51,7 @@ export interface Database {
                     past_submission_days?: number
                     future_submission_days?: number
                     deadline_mode?: 'none' | 'mark' | 'block'
+                    show_duplicate_to_user?: boolean
                     total_reps?: number
                     shield_stock?: number
                     perfect_week_count?: number
@@ -59,21 +62,21 @@ export interface Database {
             submission_items: {
                 Row: {
                     id: number
-                    client_id: string
+                    user_id: string
                     name: string
                     created_at: string
                     deleted_at: string | null
                 }
                 Insert: {
                     id?: number
-                    client_id: string
+                    user_id: string
                     name: string
                     created_at?: string
                     deleted_at?: string | null
                 }
                 Update: {
                     id?: number
-                    client_id?: string
+                    user_id?: string
                     name?: string
                     created_at?: string
                     deleted_at?: string | null
@@ -142,7 +145,7 @@ export interface Database {
             submission_rules: {
                 Row: {
                     id: number
-                    client_id: string
+                    user_id: string
                     rule_type: 'deadline' | 'target_day'
                     scope: 'monthly' | 'weekly' | 'daily'
                     day_of_week: number | null
@@ -153,7 +156,7 @@ export interface Database {
                 }
                 Insert: {
                     id?: number
-                    client_id: string
+                    user_id: string
                     rule_type: 'deadline' | 'target_day'
                     scope: 'monthly' | 'weekly' | 'daily'
                     day_of_week?: number | null
@@ -164,7 +167,7 @@ export interface Database {
                 }
                 Update: {
                     id?: number
-                    client_id?: string
+                    user_id?: string
                     rule_type?: 'deadline' | 'target_day'
                     scope?: 'monthly' | 'weekly' | 'daily'
                     day_of_week?: number | null
@@ -178,7 +181,7 @@ export interface Database {
                 Row: {
                     id: string
                     submission_id: number
-                    admin_id: string
+                    user_id: string
                     content: string
                     read_at: string | null
                     created_at: string
@@ -186,7 +189,7 @@ export interface Database {
                 Insert: {
                     id?: string
                     submission_id: number
-                    admin_id: string
+                    user_id: string
                     content: string
                     read_at?: string | null
                     created_at?: string
@@ -194,7 +197,7 @@ export interface Database {
                 Update: {
                     id?: string
                     submission_id?: number
-                    admin_id?: string
+                    user_id?: string
                     content?: string
                     read_at?: string | null
                     created_at?: string

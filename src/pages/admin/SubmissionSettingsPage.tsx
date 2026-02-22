@@ -205,7 +205,7 @@ export default function SubmissionSettingsPage() {
         const { error } = await supabase
             .from('submission_items' as any)
             .insert({
-                client_id: selectedClientId,
+                user_id: selectedClientId,
                 name: newItemName.trim()
             } as any)
 
@@ -251,7 +251,7 @@ export default function SubmissionSettingsPage() {
         if (scope === 'weekly') {
             days.forEach(day => {
                 inserts.push({
-                    client_id: selectedClientId,
+                    user_id: selectedClientId,
                     rule_type: type,
                     scope: 'weekly',
                     day_of_week: day,
@@ -260,7 +260,7 @@ export default function SubmissionSettingsPage() {
             })
         } else {
             inserts.push({
-                client_id: selectedClientId,
+                user_id: selectedClientId,
                 rule_type: type,
                 scope: scope,
                 specific_date: scope === 'daily' ? specificDate : null,
