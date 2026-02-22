@@ -199,6 +199,30 @@ export default function SubmissionSettingsPage() {
     const { items: submissionItems, refetch: refetchItems } = useSubmissionItems(selectedClientId)
     const [newItemName, setNewItemName] = useState('')
 
+    const handleUpdateItemCreatedAt = async (id: number, newDate: string) => {
+        const client = supabase.from('submission_items' as any) as any
+        const { error } = await client
+            .update({ created_at: new Date(newDate + 'T00:00:00').toISOString() })
+            .eq('id', id)
+        if (error) {
+            alert('日付の更新に失敗しました: ' + error.message)
+        } else {
+            refetchItems()
+        }
+    }
+
+    const handleUpdateRuleCreatedAt = async (id: number, newDate: string) => {
+        const client = supabase.from('submission_rules' as any) as any
+        const { error } = await client
+            .update({ created_at: new Date(newDate + 'T00:00:00').toISOString() })
+            .eq('id', id)
+        if (error) {
+            alert('日付の更新に失敗しました: ' + error.message)
+        } else {
+            refetch()
+        }
+    }
+
     const handleAddItem = async () => {
         if (!selectedClientId || !newItemName.trim()) return
 
@@ -220,10 +244,10 @@ export default function SubmissionSettingsPage() {
     const handleDeleteItem = async (id: number) => {
         if (!confirm('この項目を削除してよろしいですか？')) return
 
-        const client = supabase.from('submission_items' as any) as any
-        const { error } = await client
-            .update({ deleted_at: new Date().toISOString() })
-            .eq('id', id)
+        const { error } = await supabase
+            .from('submission_items' as any)
+            .delete()
+            .eq('id', id) as any
 
         if (error) {
             alert('Error deleting item: ' + error.message)
@@ -283,10 +307,10 @@ export default function SubmissionSettingsPage() {
     const handleDeleteRule = async (id: number) => {
         if (!confirm('この設定を削除してよろしいですか？')) return
 
-        const client = supabase.from('submission_rules' as any) as any
-        const { error } = await client
-            .update({ deleted_at: new Date().toISOString() })
-            .eq('id', id)
+        const { error } = await supabase
+            .from('submission_rules' as any)
+            .delete()
+            .eq('id', id) as any
 
         if (error) {
             alert('Error deleting rule: ' + error.message)
@@ -639,23 +663,34 @@ export default function SubmissionSettingsPage() {
                             </div>
 
                             <div className="space-y-2">
-                                {submissionItems.filter(i => !i.deleted_at).length === 0 ? (
+                                {submissionItems.length === 0 ? (
                                     <div className="text-sm text-muted-foreground italic p-4 border border-dashed rounded bg-muted/20 text-center">
                                         設定された項目はありません（デフォルト設定）
                                     </div>
                                 ) : (
                                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                                        {submissionItems.filter(i => !i.deleted_at).map(item => (
-                                            <div key={item.id} className="flex items-center justify-between p-3 rounded-lg border bg-card shadow-sm">
+                                        {submissionItems.map(item => (
+                                            <div key={item.id} className="flex flex-col gap-2 p-3 rounded-lg border bg-card shadow-sm">
                                                 <span className="font-medium truncate">{item.name}</span>
-                                                <Button
-                                                    variant="ghost"
-                                                    size="icon"
-                                                    className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                                                    onClick={() => handleDeleteItem(item.id)}
-                                                >
-                                                    <Trash2 className="w-4 h-4" />
-                                                </Button>
+                                                <div className="flex items-center justify-between gap-2">
+                                                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                                                        <span>適用開始:</span>
+                                                        <Input
+                                                            type="date"
+                                                            className="h-7 w-36 text-xs"
+                                                            value={format(parseISO(item.created_at), 'yyyy-MM-dd')}
+                                                            onChange={(e) => handleUpdateItemCreatedAt(item.id, e.target.value)}
+                                                        />
+                                                    </div>
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="icon"
+                                                        className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                                                        onClick={() => handleDeleteItem(item.id)}
+                                                    >
+                                                        <Trash2 className="w-4 h-4" />
+                                                    </Button>
+                                                </div>
                                             </div>
                                         ))}
                                     </div>
@@ -804,8 +839,9 @@ export default function SubmissionSettingsPage() {
 
                     <RuleList
                         type="deadline"
-                        rules={rules.filter(r => r.rule_type === 'deadline' && !r.deleted_at)}
+                        rules={rules.filter(r => r.rule_type === 'deadline')}
                         onDelete={handleDeleteRule}
+                        onUpdateCreatedAt={handleUpdateRuleCreatedAt}
                     />
                 </div>
 
@@ -886,8 +922,9 @@ export default function SubmissionSettingsPage() {
 
                     <RuleList
                         type="target_day"
-                        rules={rules.filter(r => r.rule_type === 'target_day' && !r.deleted_at)}
+                        rules={rules.filter(r => r.rule_type === 'target_day')}
                         onDelete={handleDeleteRule}
+                        onUpdateCreatedAt={handleUpdateRuleCreatedAt}
                     />
                 </div>
             </div>
@@ -895,56 +932,74 @@ export default function SubmissionSettingsPage() {
     )
 }
 
-function RuleList({ type, rules, onDelete }: { type: 'deadline' | 'target_day', rules: any[], onDelete: (id: number) => void }) {
+function RuleList({ type, rules, onDelete, onUpdateCreatedAt }: {
+    type: 'deadline' | 'target_day',
+    rules: any[],
+    onDelete: (id: number) => void,
+    onUpdateCreatedAt: (id: number, newDate: string) => void
+}) {
     if (rules.length === 0) {
         return <div className="text-center py-8 bg-muted/10 rounded-lg text-muted-foreground text-sm border-dashed border-2">
             設定されたルールはありません
         </div>
     }
 
-    // Sort: Daily > Weekly > Monthly, then CreatedAt Desc
+    // Sort: Daily > Weekly > Monthly, then CreatedAt Desc, then ID Desc (tiebreaker)
     const sortedRules = [...rules].sort((a, b) => {
-        const priority = { daily: 0, weekly: 1, monthly: 2 }
-        if (a.scope !== b.scope) {
-            return priority[a.scope as keyof typeof priority] - priority[b.scope as keyof typeof priority]
-        }
-        return b.id - a.id // Newest ID first for same scope
+        const scopeOrder = { daily: 0, weekly: 1, monthly: 2 } as const
+        const scopeDiff = (scopeOrder[a.scope as keyof typeof scopeOrder] ?? 99) -
+                          (scopeOrder[b.scope as keyof typeof scopeOrder] ?? 99)
+        if (scopeDiff !== 0) return scopeDiff
+        const dateDiff = new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        if (dateDiff !== 0) return dateDiff
+        return b.id - a.id
     })
 
     return (
         <div className="space-y-2 max-h-[400px] overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-muted">
             {sortedRules.map(rule => (
-                <div key={rule.id} className="group flex items-center justify-between p-3 rounded-lg border bg-card hover:border-primary/30 transition-colors">
-                    <div className="flex items-center gap-3">
-                        <div className={cn(
-                            "w-2 h-2 rounded-full",
-                            rule.scope === 'daily' ? "bg-blue-500" :
-                                rule.scope === 'weekly' ? "bg-purple-500" : "bg-gray-400"
-                        )} />
-                        <div>
-                            <div className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider">
-                                {rule.scope === 'monthly' ? "Monthly" :
-                                    rule.scope === 'weekly' ? "Weekly" : "Daily"}
-                            </div>
-                            <div className="text-sm font-medium">
-                                {rule.scope === 'monthly' && "全体設定"}
-                                {rule.scope === 'weekly' && `${DAYS_OF_WEEK.find(d => d.value === rule.day_of_week)?.label}曜`}
-                                {rule.scope === 'daily' && format(parseISO(rule.specific_date), 'MM/dd')}
-                                <span className="mx-2 text-muted-foreground opacity-50">→</span>
-                                <span className="font-bold">
-                                    {type === 'deadline' ? rule.value : (rule.value === 'true' ? "対象" : "休息日")}
-                                </span>
+                <div key={rule.id} className="group flex flex-col gap-2 p-3 rounded-lg border bg-card hover:border-primary/30 transition-colors">
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                            <div className={cn(
+                                "w-2 h-2 rounded-full",
+                                rule.scope === 'daily' ? "bg-blue-500" :
+                                    rule.scope === 'weekly' ? "bg-purple-500" : "bg-gray-400"
+                            )} />
+                            <div>
+                                <div className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider">
+                                    {rule.scope === 'monthly' ? "Monthly" :
+                                        rule.scope === 'weekly' ? "Weekly" : "Daily"}
+                                </div>
+                                <div className="text-sm font-medium">
+                                    {rule.scope === 'monthly' && "全体設定"}
+                                    {rule.scope === 'weekly' && `${DAYS_OF_WEEK.find(d => d.value === rule.day_of_week)?.label}曜`}
+                                    {rule.scope === 'daily' && format(parseISO(rule.specific_date), 'MM/dd')}
+                                    <span className="mx-2 text-muted-foreground opacity-50">→</span>
+                                    <span className="font-bold">
+                                        {type === 'deadline' ? rule.value : (rule.value === 'true' ? "対象" : "休息日")}
+                                    </span>
+                                </div>
                             </div>
                         </div>
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-muted-foreground hover:text-destructive opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity"
+                            onClick={() => onDelete(rule.id)}
+                        >
+                            <Trash2 className="w-4 h-4" />
+                        </Button>
                     </div>
-                    <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 text-muted-foreground hover:text-destructive opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity"
-                        onClick={() => onDelete(rule.id)}
-                    >
-                        <Trash2 className="w-4 h-4" />
-                    </Button>
+                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground pl-5">
+                        <span>適用開始:</span>
+                        <Input
+                            type="date"
+                            className="h-7 w-36 text-xs"
+                            value={format(parseISO(rule.created_at), 'yyyy-MM-dd')}
+                            onChange={(e) => onUpdateCreatedAt(rule.id, e.target.value)}
+                        />
+                    </div>
                 </div>
             ))}
         </div>

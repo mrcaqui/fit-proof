@@ -65,21 +65,18 @@ export interface Database {
                     user_id: string
                     name: string
                     created_at: string
-                    deleted_at: string | null
                 }
                 Insert: {
                     id?: number
                     user_id: string
                     name: string
                     created_at?: string
-                    deleted_at?: string | null
                 }
                 Update: {
                     id?: number
                     user_id?: string
                     name?: string
                     created_at?: string
-                    deleted_at?: string | null
                 }
             }
             submissions: {
@@ -152,7 +149,6 @@ export interface Database {
                     specific_date: string | null
                     value: string | null
                     created_at: string
-                    deleted_at: string | null
                 }
                 Insert: {
                     id?: number
@@ -163,7 +159,6 @@ export interface Database {
                     specific_date?: string | null
                     value?: string | null
                     created_at?: string
-                    deleted_at?: string | null
                 }
                 Update: {
                     id?: number
@@ -174,7 +169,6 @@ export interface Database {
                     specific_date?: string | null
                     value?: string | null
                     created_at?: string
-                    deleted_at?: string | null
                 }
             }
             admin_comments: {

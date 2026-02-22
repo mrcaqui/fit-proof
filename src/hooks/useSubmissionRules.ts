@@ -23,6 +23,7 @@ export function useSubmissionRules(userId?: string) {
                 .select('*')
                 .eq('user_id', userId)
                 .order('created_at', { ascending: false })
+                .order('id', { ascending: false })
 
             if (error) throw error
             setRules(data || [])
@@ -63,27 +64,12 @@ export function useSubmissionRules(userId?: string) {
     const getRuleForDate = useCallback((date: Date, type: 'deadline' | 'target_day') => {
         if (!rules.length) return null
 
-        // Filter rules that are effective for the target date (created_at <= date)
-        // Note: created_at is UTC, we compare with the start of the next day of the target date to be safe,
-        // or just compare the ISO strings if we assume local time alignment.
-        // For simplicity and correctness with "date" (which is the target calendar day), 
-        // we should compare with the rule's created_at.
-        // However, the requirement is "apply to future dates only".
-        // Let's assume rules created TODAY apply to today and future.
+        const endOfTargetDate = new Date(date)
+        endOfTargetDate.setHours(23, 59, 59, 999)
+
         const effectiveRules = rules.filter(r => {
             const ruleCreated = parseISO(r.created_at)
-            const ruleDeleted = r.deleted_at ? parseISO(r.deleted_at) : null
-
-            // Rule is effective if it was created before or on the target date.
-            const endOfTargetDate = new Date(date)
-            endOfTargetDate.setHours(23, 59, 59, 999)
-
-            // 1. Must be created at or before target date
-            const isCreated = ruleCreated <= endOfTargetDate
-            // 2. Must not be deleted, OR must be deleted AFTER the target date
-            const isNotDeleted = !ruleDeleted || ruleDeleted > endOfTargetDate
-
-            return isCreated && isNotDeleted && r.rule_type === type
+            return ruleCreated <= endOfTargetDate && r.rule_type === type
         })
 
         if (!effectiveRules.length) return null

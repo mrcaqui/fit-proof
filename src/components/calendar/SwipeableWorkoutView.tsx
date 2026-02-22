@@ -91,8 +91,7 @@ export function SwipeableWorkoutView({
     endOfDate.setHours(23, 59, 59, 999)
     return submissionItems.filter(item => {
       const created = parseISO(item.created_at)
-      const deleted = item.deleted_at ? parseISO(item.deleted_at) : null
-      return created <= endOfDate && (!deleted || deleted > endOfDate)
+      return created <= endOfDate
     })
   }, [submissionItems])
 

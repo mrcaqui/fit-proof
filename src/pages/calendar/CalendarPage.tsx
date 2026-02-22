@@ -223,8 +223,7 @@ export default function CalendarPage() {
         endOfTargetDate.setHours(23, 59, 59, 999)
         return submissionItems.filter(item => {
             const created = parseISO(item.created_at)
-            const deleted = item.deleted_at ? parseISO(item.deleted_at) : null
-            return created <= endOfTargetDate && (!deleted || deleted > endOfTargetDate)
+            return created <= endOfTargetDate
         })
     }
 
@@ -453,23 +452,31 @@ export default function CalendarPage() {
                                 const targetDayRule = getRuleForDate(date, 'target_day')
                                 const isTargetDay = targetDayRule === null || targetDayRule === 'true'
 
-                                const submittedCount = st?.submittedCount || 0
-
-                                // Calculate required items for this specific date (Logical Delete aware)
+                                // Calculate required items for this specific date
                                 const effectiveItems = getEffectiveSubmissionItems(date)
 
                                 const totalItems = effectiveItems.length > 0 ? effectiveItems.length : 1
+                                const effectiveItemIds = new Set(effectiveItems.map(i => i.id))
 
-                                // 全ての動画が承認済みかどうか
-                                // submissions の中からこの日付かつ success のものを数える
-                                const successCount = (workouts || []).filter(s =>
-                                    s.target_date &&
-                                    isSameDay(parseISO(s.target_date), date) &&
-                                    s.status === 'success'
-                                ).reduce((acc, cur) => {
-                                    // 重複カウント防止（WorkoutCard側と同じロジックにする必要があるが、ここでは項目IDベースで数える）
-                                    return acc.add(cur.submission_item_id), acc
-                                }, new Set<number | null>()).size
+                                // 該当日の submission を取得
+                                const daySubmissions = workouts.filter(s =>
+                                    s.target_date && isSameDay(parseISO(s.target_date), date)
+                                )
+
+                                // 有効項目IDと提出済みIDの積集合でカウント（NULLや削除済み項目を除外）
+                                const submittedCount = effectiveItems.length > 0
+                                    ? new Set(daySubmissions
+                                        .filter(s => s.submission_item_id !== null && effectiveItemIds.has(s.submission_item_id))
+                                        .map(s => s.submission_item_id)
+                                      ).size
+                                    : (st?.submittedCount || 0)  // 項目ゼロの一般投稿モード
+
+                                const successCount = effectiveItems.length > 0
+                                    ? new Set(daySubmissions
+                                        .filter(s => s.status === 'success' && s.submission_item_id !== null && effectiveItemIds.has(s.submission_item_id))
+                                        .map(s => s.submission_item_id)
+                                      ).size
+                                    : daySubmissions.filter(s => s.status === 'success').length
 
                                 const isAllApproved = successCount >= totalItems && !st?.hasFail
                                 const isComplete = submittedCount >= totalItems
