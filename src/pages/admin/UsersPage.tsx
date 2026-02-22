@@ -19,6 +19,15 @@ import {
     DialogTitle,
 } from "@/components/ui/dialog"
 import {
+    AlertDialog,
+    AlertDialogContent,
+    AlertDialogHeader,
+    AlertDialogTitle,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogCancel,
+} from "@/components/ui/alert-dialog"
+import {
     Select,
     SelectContent,
     SelectItem,
@@ -26,8 +35,9 @@ import {
     SelectValue,
 } from "@/components/ui/select"
 import { useAuth } from "@/context/AuthContext"
-import { Plus, Pencil, Trash2, Loader2 } from "lucide-react"
+import { Plus, Pencil, Trash2, Loader2, AlertTriangle } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
+import { deleteR2Object, deleteR2ObjectsByPrefix } from "@/lib/r2"
 
 interface AuthUser {
     email: string
@@ -47,6 +57,8 @@ export default function UsersPage() {
         role: "client" as 'admin' | 'client'
     })
     const [submitting, setSubmitting] = useState(false)
+    const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
+    const [deleting, setDeleting] = useState(false)
 
     useEffect(() => {
         fetchUsers()
@@ -106,24 +118,50 @@ export default function UsersPage() {
         }
     }
 
-    const handleDelete = async (email: string) => {
-        if (!confirm(`Are you sure you want to remove ${email}?`)) return
+    const handleDeleteConfirm = async () => {
+        if (!deleteTarget) return
+        setDeleting(true)
 
         try {
-            const { error } = await (supabase as any)
-                .from('authorized_users')
-                .delete()
-                .eq('email', email)
+            // RPC呼び出しでDB上の全関連データを削除し、r2_keysを取得
+            const { data, error } = await (supabase as any)
+                .rpc('delete_user_completely', { target_email: deleteTarget })
 
             if (error) throw error
-            toast({ title: "User removed successfully" })
+
+            const result = data?.[0] || data
+            const targetUserId: string | null = result?.target_user_id
+            const r2Keys: string[] = (result?.r2_keys || []).filter(Boolean)
+
+            // DB上のr2_keyに記録されている動画ファイルを削除
+            for (const key of r2Keys) {
+                try {
+                    await deleteR2Object(key)
+                } catch (e) {
+                    console.warn(`Failed to delete R2 object: ${key}`, e)
+                }
+            }
+
+            // R2のuploads/${userId}/プレフィックスで残存オブジェクトも一括削除
+            if (targetUserId) {
+                try {
+                    await deleteR2ObjectsByPrefix(`uploads/${targetUserId}/`)
+                } catch (e) {
+                    console.warn(`Failed to delete R2 objects by prefix for user: ${targetUserId}`, e)
+                }
+            }
+
+            toast({ title: "ユーザーを完全に削除しました" })
+            setDeleteTarget(null)
             fetchUsers()
         } catch (error: any) {
             toast({
-                title: "Error deleting user",
+                title: "ユーザーの削除に失敗しました",
                 description: error.message,
                 variant: "destructive",
             })
+        } finally {
+            setDeleting(false)
         }
     }
 
@@ -208,7 +246,7 @@ export default function UsersPage() {
                                                     variant="ghost"
                                                     size="icon"
                                                     disabled={isSelf}
-                                                    onClick={() => handleDelete(user.email)}
+                                                    onClick={() => setDeleteTarget(user.email)}
                                                     title={isSelf ? "自身の情報は削除できません" : "削除"}
                                                     className="text-destructive hover:text-destructive"
                                                 >
@@ -265,7 +303,7 @@ export default function UsersPage() {
                                             variant="outline"
                                             size="sm"
                                             className="h-8 text-xs text-destructive hover:text-destructive hover:bg-destructive/10 border-destructive/20"
-                                            onClick={() => handleDelete(user.email)}
+                                            onClick={() => setDeleteTarget(user.email)}
                                         >
                                             <Trash2 className="mr-2 h-3 w-3" />
                                             削除
@@ -325,6 +363,45 @@ export default function UsersPage() {
                     </form>
                 </DialogContent>
             </Dialog>
+
+            <AlertDialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null) }}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle className="flex items-center gap-2">
+                            <AlertTriangle className="h-5 w-5 text-destructive" />
+                            ユーザーの完全削除
+                        </AlertDialogTitle>
+                        <AlertDialogDescription asChild>
+                            <div className="space-y-3">
+                                <p>
+                                    <span className="font-semibold text-foreground">{deleteTarget}</span> を削除します。以下のデータがすべて削除されます：
+                                </p>
+                                <ul className="list-disc pl-5 space-y-1 text-sm">
+                                    <li>投稿データ（全ての提出履歴）</li>
+                                    <li>動画ファイル（Cloudflare R2上のファイル）</li>
+                                    <li>投稿設定（ルール・投稿項目・定休日設定）</li>
+                                    <li>ゲーミフィケーションデータ（ストリーク・シールド等）</li>
+                                    <li>管理者コメント</li>
+                                    <li>プロフィール情報</li>
+                                    <li>ログイン認証情報</li>
+                                </ul>
+                                <p className="font-semibold text-destructive">この操作は取り消せません。</p>
+                            </div>
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel disabled={deleting}>キャンセル</AlertDialogCancel>
+                        <Button
+                            variant="destructive"
+                            onClick={handleDeleteConfirm}
+                            disabled={deleting}
+                        >
+                            {deleting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                            削除する
+                        </Button>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </div>
     )
 }

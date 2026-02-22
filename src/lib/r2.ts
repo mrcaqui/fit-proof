@@ -1,4 +1,4 @@
-import { S3Client, DeleteObjectCommand } from "@aws-sdk/client-s3"
+import { S3Client, DeleteObjectCommand, ListObjectsV2Command } from "@aws-sdk/client-s3"
 
 export const r2Client = new S3Client({
     region: "auto",
@@ -18,6 +18,44 @@ export async function deleteR2Object(key: string) {
         Key: key,
     })
     return await r2Client.send(command)
+}
+
+export async function listR2ObjectsByPrefix(prefix: string): Promise<string[]> {
+    const keys: string[] = []
+    let continuationToken: string | undefined
+
+    do {
+        const command = new ListObjectsV2Command({
+            Bucket: R2_BUCKET_NAME,
+            Prefix: prefix,
+            ContinuationToken: continuationToken,
+        })
+        const response = await r2Client.send(command)
+
+        if (response.Contents) {
+            for (const obj of response.Contents) {
+                if (obj.Key) {
+                    keys.push(obj.Key)
+                }
+            }
+        }
+
+        continuationToken = response.IsTruncated ? response.NextContinuationToken : undefined
+    } while (continuationToken)
+
+    return keys
+}
+
+export async function deleteR2ObjectsByPrefix(prefix: string): Promise<number> {
+    const keys = await listR2ObjectsByPrefix(prefix)
+    const chunkSize = 100
+
+    for (let i = 0; i < keys.length; i += chunkSize) {
+        const chunk = keys.slice(i, i + chunkSize)
+        await Promise.all(chunk.map((key) => deleteR2Object(key)))
+    }
+
+    return keys.length
 }
 
 export function getR2PublicUrl(key: string) {
