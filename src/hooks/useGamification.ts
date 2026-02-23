@@ -7,15 +7,16 @@ import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/context/AuthContext'
 import { Database } from '@/types/database.types'
 import { GamificationSettings, DEFAULT_GAMIFICATION_SETTINGS } from '@/types/gamification.types'
-import { calculateStreak, isRevivalCandidate, SubmissionForStreak } from '@/utils/streakCalculator'
-import { format, parseISO } from 'date-fns'
+import { calculateStreak, isRevivalCandidate, SubmissionForStreak, IsRestDayFn } from '@/utils/streakCalculator'
+import { format, parseISO, startOfDay, eachDayOfInterval } from 'date-fns'
 
 type Profile = Database['public']['Tables']['profiles']['Row']
 type Submission = Database['public']['Tables']['submissions']['Row']
 
 export interface GamificationState {
-    // プロフィールから取得
+    // プロフィールから取得（または effective_from 時はオンデマンド計算）
     totalReps: number
+    totalDays: number
     shieldStock: number
     perfectWeekCount: number
     revivalSuccessCount: number
@@ -128,26 +129,85 @@ export function useGamification({ targetUserId, submissions, isRestDay }: UseGam
         }))
     }, [submissions])
 
+    // effective_from を gamificationSettings から取得
+    const effectiveFrom = useMemo(() => {
+        return gamificationSettings.effective_from
+            ? parseISO(gamificationSettings.effective_from)
+            : undefined
+    }, [gamificationSettings.effective_from])
+
+    // submissions のフィルタリング（effective_from 以降のみ）
+    const filteredSubmissions = useMemo(() => {
+        if (!effectiveFrom) return submissionsForStreak
+        const cutoff = format(effectiveFrom, 'yyyy-MM-dd')
+        return submissionsForStreak.filter(s =>
+            s.target_date && s.target_date >= cutoff
+        )
+    }, [submissionsForStreak, effectiveFrom])
+
+    // 累積日数の計算
+    const totalDays = useMemo(() => {
+        const uniqueDates = new Set<string>()
+        for (const s of filteredSubmissions) {
+            if (s.target_date && s.status === 'success') {
+                uniqueDates.add(s.target_date)
+            }
+        }
+        return uniqueDates.size
+    }, [filteredSubmissions])
+
+    // 累積回数: effective_from がある場合はオンデマンド計算
+    const totalReps = useMemo(() => {
+        if (!effectiveFrom) return gamificationProfile.total_reps ?? 0
+        // effective_from 設定時: filteredSubmissions の reps を対象に計算
+        // SubmissionForStreak には reps がないため submissions から直接計算
+        const cutoff = format(effectiveFrom, 'yyyy-MM-dd')
+        return submissions
+            .filter(s => s.status === 'success' && s.reps && s.target_date && s.target_date >= cutoff)
+            .reduce((sum, s) => sum + (s.reps ?? 0), 0)
+    }, [effectiveFrom, submissions, gamificationProfile.total_reps])
+
+    // シールド残数: effective_from 設定時は 0 リセット
+    const effectiveShieldStock = effectiveFrom ? 0 : (gamificationProfile.shield_stock ?? 0)
+
     // ストリーク計算（オンデマンド）
     const streakResult = useMemo(() => {
         return calculateStreak(
             submissionsForStreak,
             isRestDay,
-            gamificationProfile.shield_stock ?? 0
+            effectiveShieldStock,
+            effectiveFrom
         )
-    }, [submissionsForStreak, isRestDay, gamificationProfile.shield_stock])
+    }, [submissionsForStreak, isRestDay, effectiveShieldStock, effectiveFrom])
+
+    // リバイバル回数: effective_from がある場合はオンデマンド計算
+    const revivalSuccessCount = useMemo(() => {
+        if (!effectiveFrom) return gamificationProfile.revival_success_count ?? 0
+        return filteredSubmissions
+            .filter(s => s.status === 'success' && s.is_revival)
+            .length
+    }, [effectiveFrom, filteredSubmissions, gamificationProfile.revival_success_count])
+
+    // ストレート達成回数: effective_from がある場合はオンデマンド計算
+    const perfectWeekCount = useMemo(() => {
+        if (!effectiveFrom) return gamificationProfile.perfect_week_count ?? 0
+        return calculateCumulativePerfectWeeks(
+            filteredSubmissions, isRestDay, gamificationSettings.straight.weekly_target
+        )
+    }, [effectiveFrom, filteredSubmissions, isRestDay, gamificationProfile.perfect_week_count, gamificationSettings.straight.weekly_target])
 
     // ゲーミフィケーション状態
     const state: GamificationState = useMemo(() => ({
-        totalReps: gamificationProfile.total_reps ?? 0,
-        shieldStock: gamificationProfile.shield_stock ?? 0,
-        perfectWeekCount: gamificationProfile.perfect_week_count ?? 0,
-        revivalSuccessCount: gamificationProfile.revival_success_count ?? 0,
+        totalReps,
+        totalDays,
+        shieldStock: Math.max(0, effectiveShieldStock - streakResult.shieldsConsumed),
+        perfectWeekCount,
+        revivalSuccessCount,
         currentStreak: streakResult.currentStreak,
         shieldDays: streakResult.shieldDays,
         revivalDays: streakResult.revivalDays,
         pendingNotifications
-    }), [gamificationProfile, streakResult, pendingNotifications])
+    }), [totalReps, totalDays, effectiveShieldStock, streakResult, perfectWeekCount, revivalSuccessCount, pendingNotifications])
 
     // 日付がシールド消費日かどうか
     const isShieldDay = useCallback((date: Date): boolean => {
@@ -278,4 +338,45 @@ export function useGamification({ targetUserId, submissions, isRestDay }: UseGam
         clearAllNotifications,
         refetch: fetchGamificationData
     }
+}
+
+/**
+ * 累積ストレート達成回数を計算
+ * filteredSubmissions から、定休日を除いた日付を時系列で走査し、
+ * シールド・リバイバル不使用で weeklyTarget 日連続達成するごとに +1 カウント
+ */
+function calculateCumulativePerfectWeeks(
+    submissions: SubmissionForStreak[],
+    isRestDay: IsRestDayFn,
+    weeklyTarget: number
+): number {
+    const approvedDates = new Set(
+        submissions.filter(s => s.status === 'success' && s.target_date).map(s => s.target_date!)
+    )
+    const revivalDates = new Set(
+        submissions.filter(s => s.status === 'success' && s.is_revival && s.target_date).map(s => s.target_date!)
+    )
+    const today = format(startOfDay(new Date()), 'yyyy-MM-dd')
+    const allDates = Array.from(approvedDates).filter(d => d <= today).sort()
+    if (allDates.length === 0) return 0
+
+    let perfectStreak = 0
+    let count = 0
+    const startDate = parseISO(allDates[0])
+    const endDate = startOfDay(new Date())
+    const days = eachDayOfInterval({ start: startDate, end: endDate })
+
+    for (const day of days) {
+        if (isRestDay(day)) continue
+        const dateStr = format(day, 'yyyy-MM-dd')
+        if (approvedDates.has(dateStr) && !revivalDates.has(dateStr)) {
+            perfectStreak++
+            if (perfectStreak >= weeklyTarget && perfectStreak % weeklyTarget === 0) {
+                count++
+            }
+        } else {
+            perfectStreak = 0
+        }
+    }
+    return count
 }

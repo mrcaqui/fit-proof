@@ -297,19 +297,31 @@ export default function CalendarPage() {
                                 </Popover>
                             )}
 
-                            {/* 累積回数 */}
-                            <Popover>
-                                <PopoverTrigger asChild>
-                                    <button className="flex items-center gap-2 text-muted-foreground text-lg hover:opacity-80 transition-opacity cursor-help">
-                                        <span className="font-bold">TOTAL:</span>
-                                        <span className="font-semibold">{gamification.state.totalReps}回</span>
-                                    </button>
-                                </PopoverTrigger>
-                                <PopoverContent className="w-64 text-sm">
-                                    <p className="font-semibold mb-1">💪 累積回数</p>
-                                    <p className="text-muted-foreground">これまでに承認されたトレーニングの合計回数です。頑張りの積み重ねが一目でわかります！</p>
-                                </PopoverContent>
-                            </Popover>
+                            {/* 累積日数 + 累積回数 */}
+                            {gamification.settings.total_reps.enabled && (
+                                <Popover>
+                                    <PopoverTrigger asChild>
+                                        <button className="flex items-center gap-2 text-muted-foreground text-lg hover:opacity-80 transition-opacity cursor-help">
+                                            <span className="font-bold">📊</span>
+                                            <span className="font-semibold">{gamification.state.totalDays}日</span>
+                                            <span className="text-muted-foreground/60">|</span>
+                                            <span className="font-semibold">{gamification.state.totalReps}回</span>
+                                        </button>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="w-72 text-sm">
+                                        <p className="font-semibold mb-1">📊 累積記録</p>
+                                        <div className="space-y-1 text-muted-foreground">
+                                            <p><strong>{gamification.state.totalDays}日</strong> — 承認された提出があった日数の累計</p>
+                                            <p><strong>{gamification.state.totalReps}回</strong> — 承認されたトレーニングのRep数の累計</p>
+                                            {gamification.settings.effective_from && (
+                                                <p className="text-xs mt-2 pt-2 border-t">
+                                                    ※ {gamification.settings.effective_from} 以降の記録が対象
+                                                </p>
+                                            )}
+                                        </div>
+                                    </PopoverContent>
+                                </Popover>
+                            )}
                         </div>
 
                         {/* 下段: シールド・ストレート・復活（Popoverで説明表示） - 均等配置 */}
@@ -360,7 +372,7 @@ export default function CalendarPage() {
                                         <button className="flex items-center gap-1.5 cursor-help hover:opacity-80 transition-opacity">
                                             <img src="/assets/revival_badge.png" alt="復活" className="w-10 h-10" />
                                             <span className="font-semibold text-base">
-                                                {(workouts || []).filter(w => w.status === 'success' && w.is_revival === true).length}
+                                                {gamification.state.revivalSuccessCount}
                                             </span>
                                         </button>
                                     </PopoverTrigger>

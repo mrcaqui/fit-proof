@@ -14,7 +14,6 @@ export interface Database {
                     id: string
                     display_name: string | null
                     role: 'admin' | 'client'
-                    streak_count: number
                     updated_at: string | null
                     past_submission_days: number
                     future_submission_days: number
@@ -30,7 +29,6 @@ export interface Database {
                     id: string
                     display_name?: string | null
                     role?: 'admin' | 'client'
-                    streak_count?: number
                     updated_at?: string | null
                     past_submission_days?: number
                     future_submission_days?: number
@@ -46,7 +44,6 @@ export interface Database {
                     id?: string
                     display_name?: string | null
                     role?: 'admin' | 'client'
-                    streak_count?: number
                     updated_at?: string | null
                     past_submission_days?: number
                     future_submission_days?: number

@@ -26,12 +26,19 @@ export interface GamificationStreakSettings {
     enabled: boolean        // UI表示するか
 }
 
+// 累積回数(Total Reps)表示設定
+export interface GamificationTotalRepsSettings {
+    enabled: boolean    // UI表示するか
+}
+
 // ゲーミフィケーション設定全体
 export interface GamificationSettings {
     straight: GamificationStraightSettings
     shield: GamificationShieldSettings
     revival: GamificationRevivalSettings
     streak: GamificationStreakSettings
+    total_reps: GamificationTotalRepsSettings
+    effective_from: string | null   // 全項目共通の適用開始日 (YYYY-MM-DD)
 }
 
 // デフォルト設定
@@ -50,5 +57,9 @@ export const DEFAULT_GAMIFICATION_SETTINGS: GamificationSettings = {
     },
     streak: {
         enabled: true
-    }
+    },
+    total_reps: {
+        enabled: true
+    },
+    effective_from: null    // デフォルトはnull（全期間対象）
 }

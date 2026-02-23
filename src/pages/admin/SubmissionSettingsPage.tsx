@@ -196,6 +196,13 @@ export default function SubmissionSettingsPage() {
         }))
     }
 
+    const updateTotalRepsSettings = (updates: Partial<GamificationSettings['total_reps']>) => {
+        setGamificationSettings(prev => ({
+            ...prev,
+            total_reps: { ...prev.total_reps, ...updates }
+        }))
+    }
+
     const { items: submissionItems, refetch: refetchItems } = useSubmissionItems(selectedClientId)
     const [newItemName, setNewItemName] = useState('')
 
@@ -625,6 +632,63 @@ export default function SubmissionSettingsPage() {
                                 <p className="text-xs text-muted-foreground pl-7">
                                     投稿を続けた日数。週明け月曜に前週のノルマ達成を判定、未達ならリセット
                                 </p>
+                            </div>
+
+                            {/* 累積記録 */}
+                            <div className="space-y-3 p-4 rounded-lg border bg-muted/10">
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-lg">📊</span>
+                                        <Label className="font-semibold">累積記録</Label>
+                                    </div>
+                                    <label className="flex items-center gap-2 cursor-pointer">
+                                        <input
+                                            type="checkbox"
+                                            checked={gamificationSettings.total_reps.enabled}
+                                            onChange={(e) => updateTotalRepsSettings({ enabled: e.target.checked })}
+                                            className="w-4 h-4 rounded"
+                                        />
+                                        <span className="text-sm">表示する</span>
+                                    </label>
+                                </div>
+                                <p className="text-xs text-muted-foreground pl-7">
+                                    承認された提出の累積日数とRep数を表示
+                                </p>
+                            </div>
+
+                            {/* 適用開始日 */}
+                            <div className="space-y-3 p-4 rounded-lg border bg-primary/5">
+                                <div className="flex items-center gap-2">
+                                    <span className="text-lg">📅</span>
+                                    <Label className="font-semibold">適用開始日</Label>
+                                </div>
+                                <p className="text-xs text-muted-foreground">
+                                    全ゲーミフィケーション項目（連続日数、ストレート達成、シールド、リバイバル、累積記録）の計算開始日を指定します。
+                                    この日付以降の提出データのみが対象となります。未設定の場合は全期間が対象です。
+                                </p>
+                                <div className="flex items-center gap-3 pl-7">
+                                    <Input
+                                        type="date"
+                                        value={gamificationSettings.effective_from || ''}
+                                        onChange={(e) => setGamificationSettings(prev => ({
+                                            ...prev,
+                                            effective_from: e.target.value || null
+                                        }))}
+                                        className="w-48"
+                                    />
+                                    {gamificationSettings.effective_from && (
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={() => setGamificationSettings(prev => ({
+                                                ...prev,
+                                                effective_from: null
+                                            }))}
+                                        >
+                                            クリア
+                                        </Button>
+                                    )}
+                                </div>
                             </div>
 
                             <Button

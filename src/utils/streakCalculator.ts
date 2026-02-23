@@ -67,7 +67,8 @@ function getRevivalDates(submissions: SubmissionForStreak[]): Set<string> {
 export function calculateStreak(
     submissions: SubmissionForStreak[],
     isRestDay: IsRestDayFn,
-    currentShieldStock: number
+    currentShieldStock: number,
+    effectiveFrom?: Date
 ): StreakResult {
     const approvedDates = getApprovedDates(submissions)
     const revivalDates = getRevivalDates(submissions)
@@ -88,6 +89,11 @@ export function calculateStreak(
     for (let i = days.length - 1; i >= 0; i--) {
         const day = days[i]
         const dateStr = format(day, 'yyyy-MM-dd')
+
+        // 適用開始日より前ならストリーク終了
+        if (effectiveFrom && isBefore(day, effectiveFrom)) {
+            break
+        }
 
         // 定休日はスキップ（カウントしない）
         if (isRestDay(day)) {
