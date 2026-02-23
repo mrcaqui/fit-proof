@@ -34,7 +34,7 @@ interface WorkoutCardProps {
     onAddComment?: (submissionId: number, content: string) => Promise<any>
     onDeleteComment?: (commentId: string) => Promise<any>
     onMarkAsRead?: (commentId: string) => Promise<any>
-    deadlineMode?: 'none' | 'mark' | 'block'
+    deadlineMode?: 'none' | 'mark'
     duplicateType?: 'hash' | 'duration' | null
     duplicateInfo?: { targetDate: string; fileName: string } | null
 }

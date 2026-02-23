@@ -169,28 +169,39 @@ export function useWorkoutHistory(targetUserId?: string) {
                 )
 
                 // 過去の日付で、他に承認済みがなければリバイバル候補
-                const targetDateObj = new Date(targetDate)
+                // タイムゾーン安全: targetDate を年月日に分解してローカル深夜0時として生成する
+                const [ty, tm, td] = targetDate.split('-').map(Number)
+                const targetDateObj = new Date(ty, tm - 1, td) // ローカル深夜0時（UTC解釈問題なし）
                 const today = new Date()
                 today.setHours(0, 0, 0, 0)
-                targetDateObj.setHours(0, 0, 0, 0)
 
                 if (targetDateObj < today && !hasOtherApproved) {
-                    // 過去日かつ初回承認 → リバイバル
-                    isRevival = true
-                    updateData.is_revival = true
+                    // #7: created_at が target_date より後の日付の場合のみリバイバル
+                    // リバイバルの本質 = 「過去の空白日を後から埋めた」こと。
+                    // 当日投稿→翌日承認や事前投稿は正規の提出なのでリバイバルではない。
+                    const createdAt = currentWorkout?.created_at
+                    if (createdAt) {
+                        const createdAtDate = new Date(createdAt)
+                        createdAtDate.setHours(0, 0, 0, 0)
+                        if (createdAtDate > targetDateObj) {
+                            // 過去日かつ初回承認かつ target_date より後に投稿 → リバイバル
+                            isRevival = true
+                            updateData.is_revival = true
 
-                    // クライアント向けに通知をlocalStorageに保存
-                    if (userId) {
-                        const notificationKey = `pending_revival_${userId}`
-                        const existing = localStorage.getItem(notificationKey)
-                        const notifications = existing ? JSON.parse(existing) : []
-                        notifications.push({
-                            type: 'revival_success',
-                            message: '🔥 不屈の復活！過去の空白を埋めました！',
-                            targetDate,
-                            createdAt: new Date().toISOString()
-                        })
-                        localStorage.setItem(notificationKey, JSON.stringify(notifications))
+                            // クライアント向けに通知をlocalStorageに保存
+                            if (userId) {
+                                const notificationKey = `pending_revival_${userId}`
+                                const existing = localStorage.getItem(notificationKey)
+                                const notifications = existing ? JSON.parse(existing) : []
+                                notifications.push({
+                                    type: 'revival_success',
+                                    message: '🔥 不屈の復活！過去の空白を埋めました！',
+                                    targetDate,
+                                    createdAt: new Date().toISOString()
+                                })
+                                localStorage.setItem(notificationKey, JSON.stringify(notifications))
+                            }
+                        }
                     }
                 }
             }

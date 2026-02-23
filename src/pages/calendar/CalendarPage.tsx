@@ -40,7 +40,7 @@ export default function CalendarPage() {
         }
         return undefined
     })
-    const [clients, setClients] = useState<{ id: string; display_name: string | null; past_submission_days: number; future_submission_days: number; deadline_mode: 'none' | 'mark' | 'block'; show_duplicate_to_user: boolean }[]>([])
+    const [clients, setClients] = useState<{ id: string; display_name: string | null; past_submission_days: number; future_submission_days: number; deadline_mode: 'none' | 'mark'; show_duplicate_to_user: boolean }[]>([])
     const [selectedVideo, setSelectedVideo] = useState<string | null>(null)
 
     // Determine whose rules to fetch: selected user for admin, or self for client
@@ -643,11 +643,7 @@ export default function CalendarPage() {
                     const targetDayRule = getRuleForDate(selectedDate, 'target_day')
                     return targetDayRule !== null && targetDayRule !== 'true'
                 })()}
-                isLate={(() => {
-                    // 期限超過チェックは当日のみ適用（過去・未来には適用しない）
-                    const isToday = isSameDay(selectedDate, new Date())
-                    return isToday && isDeadlinePassed(selectedDate)
-                })()}
+                isLate={isDeadlinePassed(selectedDate)}
                 deadlineMode={(() => {
                     const clientProfile = selectedClientId ? clients.find(c => c.id === selectedClientId) : null
                     return clientProfile?.deadline_mode ?? (profile as any)?.deadline_mode ?? 'none'

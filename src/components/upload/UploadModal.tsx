@@ -21,12 +21,10 @@ interface UploadModalProps {
     items: Database['public']['Tables']['submission_items']['Row'][]
     completedSubmissions: { id: number | null, item_id: number | null, file_name: string | null }[]
     isLate?: boolean
-    deadlineMode?: 'none' | 'mark' | 'block'
 }
 
-export function UploadModal({ targetDate, onClose, onSuccess, items, completedSubmissions, isLate = false, deadlineMode = 'none' }: UploadModalProps) {
+export function UploadModal({ targetDate, onClose, onSuccess, items, completedSubmissions, isLate = false }: UploadModalProps) {
     const { user } = useAuth()
-    const isBlocked = deadlineMode === 'block' && isLate
     const [uploadingState, setUploadingState] = useState<Record<number | string, {
         file: File | null,
         thumbnail: string | null,
@@ -259,15 +257,8 @@ export function UploadModal({ targetDate, onClose, onSuccess, items, completedSu
         const isCompleted = !!submission
 
         return (
-            <div key={itemId} className={`p-4 rounded-lg border-2 transition-all space-y-4 ${isBlocked ? 'bg-destructive/5 border-destructive/30' : isCompleted ? 'bg-muted/30 border-muted' : 'bg-card border-muted-foreground/10 hover:border-primary/30'
+            <div key={itemId} className={`p-4 rounded-lg border-2 transition-all space-y-4 ${isCompleted ? 'bg-muted/30 border-muted' : 'bg-card border-muted-foreground/10 hover:border-primary/30'
                 }`}>
-                {/* ブロックモード時の警告 */}
-                {isBlocked && (
-                    <div className="flex items-center gap-2 text-destructive text-sm font-medium bg-destructive/10 p-3 rounded-lg">
-                        <AlertCircle className="w-4 h-4 shrink-0" />
-                        <span>期限を過ぎたため、投稿できません</span>
-                    </div>
-                )}
                 <div className="flex items-center justify-between gap-2">
                     <div className="flex flex-col gap-0.5">
                         <h4 className="font-bold flex items-center gap-2 text-sm sm:text-base">
@@ -284,7 +275,7 @@ export function UploadModal({ targetDate, onClose, onSuccess, items, completedSu
                             </p>
                         )}
                     </div>
-                    {state.file && !state.isUploading && !state.success && !isBlocked && (
+                    {state.file && !state.isUploading && !state.success && (
                         <Button size="sm" onClick={() => handleUpload(itemId)} className="h-8" disabled={!state.hash}>
                             <Upload className="w-3 h-3 mr-1" /> {!state.hash ? '計算中...' : 'アップロード'}
                         </Button>
@@ -299,7 +290,7 @@ export function UploadModal({ targetDate, onClose, onSuccess, items, completedSu
                         onChange={(e) => handleFileSelect(e, itemId)}
                         className="hidden"
                         id={`file-input-${itemId}`}
-                        disabled={state.isUploading || isBlocked}
+                        disabled={state.isUploading}
                     />
                     <label
                         htmlFor={`file-input-${itemId}`}

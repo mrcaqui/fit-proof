@@ -29,7 +29,7 @@ interface SwipeableWorkoutViewProps {
   futureAllowed?: number
   isRestDay?: boolean
   isLate?: boolean
-  deadlineMode?: 'none' | 'mark' | 'block'
+  deadlineMode?: 'none' | 'mark'
   showDuplicateToUser?: boolean
 }
 
@@ -274,7 +274,6 @@ export function SwipeableWorkoutView({
                   targetDate={date}
                   onSuccess={onUploadSuccess}
                   isLate={isLate}
-                  deadlineMode={deadlineMode}
                 />
               ))}
             </div>

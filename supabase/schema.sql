@@ -13,7 +13,7 @@ create table profiles (
   updated_at timestamp with time zone,
   past_submission_days integer default 7,
   future_submission_days integer default 7,
-  deadline_mode text check (deadline_mode in ('none', 'mark', 'block')) default 'none',
+  deadline_mode text check (deadline_mode in ('none', 'mark')) default 'none',
   show_duplicate_to_user boolean default false,
   total_reps integer default 0,
   shield_stock integer default 0,

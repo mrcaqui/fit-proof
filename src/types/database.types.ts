@@ -17,7 +17,7 @@ export interface Database {
                     updated_at: string | null
                     past_submission_days: number
                     future_submission_days: number
-                    deadline_mode: 'none' | 'mark' | 'block'
+                    deadline_mode: 'none' | 'mark'
                     show_duplicate_to_user: boolean
                     total_reps: number
                     shield_stock: number
@@ -33,7 +33,7 @@ export interface Database {
                     updated_at?: string | null
                     past_submission_days?: number
                     future_submission_days?: number
-                    deadline_mode?: 'none' | 'mark' | 'block'
+                    deadline_mode?: 'none' | 'mark'
                     show_duplicate_to_user?: boolean
                     total_reps?: number
                     shield_stock?: number
@@ -49,7 +49,7 @@ export interface Database {
                     updated_at?: string | null
                     past_submission_days?: number
                     future_submission_days?: number
-                    deadline_mode?: 'none' | 'mark' | 'block'
+                    deadline_mode?: 'none' | 'mark'
                     show_duplicate_to_user?: boolean
                     total_reps?: number
                     shield_stock?: number
