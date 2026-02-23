@@ -1,11 +1,25 @@
 import { Outlet } from "react-router-dom"
 import { MobileNav, Sidebar } from "./Sidebar"
 import { ThemeProvider } from "../theme-provider"
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { cn } from "@/lib/utils"
+import { useAuth } from "@/context/AuthContext"
+import { supabase } from "@/lib/supabase"
 
 export default function AppLayout() {
     const [isCollapsed, setIsCollapsed] = useState(false)
+    const { profile } = useAuth()
+
+    // 管理者がアプリを開いたタイミングで cleanup-videos を自動実行する。
+    // UI をブロックせずバックグラウンドで実行し、結果は console のみに記録する。
+    useEffect(() => {
+        if (profile?.role === 'admin') {
+            supabase.functions.invoke('cleanup-videos').then(({ data, error }) => {
+                if (error) console.error('Cleanup failed:', error)
+                else console.log('Cleanup result:', data)
+            })
+        }
+    }, [profile?.role])
 
     return (
         <ThemeProvider defaultTheme="system" storageKey="fit-proof-theme">

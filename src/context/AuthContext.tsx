@@ -106,7 +106,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     shield_stock: 0,
                     perfect_week_count: 0,
                     revival_success_count: 0,
-                    gamification_settings: null
+                    gamification_settings: null,
+                    video_retention_days: null
                 }
 
                 const { error: insertError } = await supabase
@@ -133,7 +134,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     shield_stock: 0,
                     perfect_week_count: 0,
                     revival_success_count: 0,
-                    gamification_settings: null
+                    gamification_settings: null,
+                    video_retention_days: null
                 })
             } else if (data) {
                 const profileData = data as Profile

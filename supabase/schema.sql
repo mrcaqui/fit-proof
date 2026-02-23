@@ -20,6 +20,7 @@ create table profiles (
   perfect_week_count integer default 0,
   revival_success_count integer default 0,
   gamification_settings jsonb,
+  video_retention_days integer default 30,
 
   constraint username_length check (char_length(display_name) >= 3)
 );

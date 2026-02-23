@@ -55,7 +55,7 @@ export function VideoPlayerModal({ videoUrl, onClose }: VideoPlayerModalProps) {
         }
     }
 
-    const playbackRates = [1, 1.5, 2, 2.5, 3]
+    const playbackRates = [1, 2, 3, 4, 5]
 
     return (
         <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">

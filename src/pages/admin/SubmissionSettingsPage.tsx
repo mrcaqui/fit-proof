@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
-import { Plus, Trash2, Calendar as CalendarIcon, Clock, Gamepad2 } from 'lucide-react'
+import { Plus, Trash2, Calendar as CalendarIcon, Clock, Gamepad2, HardDrive, Info } from 'lucide-react'
 import {
     Select,
     SelectContent,
@@ -15,6 +15,13 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select"
+import {
+    Popover,
+    PopoverContent,
+    PopoverTrigger,
+} from "@/components/ui/popover"
+import { Progress } from '@/components/ui/progress'
+import { getTotalStorageUsedBytes } from '@/lib/r2'
 import { cn } from '@/lib/utils'
 import { format, parseISO } from 'date-fns'
 import { Settings } from 'lucide-react'
@@ -66,6 +73,10 @@ export default function SubmissionSettingsPage() {
     const [gamificationSettings, setGamificationSettings] = useState<GamificationSettings>(DEFAULT_GAMIFICATION_SETTINGS)
     const [isUpdatingGamification, setIsUpdatingGamification] = useState(false)
 
+    // Storage management state
+    const [videoRetentionDays, setVideoRetentionDays] = useState<number>(30)
+    const [storageUsedBytes, setStorageUsedBytes] = useState<number>(0)
+
     // Fetch clients
     useEffect(() => {
         const fetchClients = async () => {
@@ -94,16 +105,22 @@ export default function SubmissionSettingsPage() {
 
             const { data, error } = await supabase
                 .from('profiles')
-                .select('past_submission_days, future_submission_days, deadline_mode, show_duplicate_to_user')
+                .select('past_submission_days, future_submission_days, deadline_mode, show_duplicate_to_user, video_retention_days')
                 .eq('id', selectedClientId)
-                .single() as { data: { past_submission_days: number | null, future_submission_days: number | null, deadline_mode: 'none' | 'mark' | 'block' | null, show_duplicate_to_user: boolean | null } | null, error: any }
+                .single() as { data: { past_submission_days: number | null, future_submission_days: number | null, deadline_mode: 'none' | 'mark' | 'block' | null, show_duplicate_to_user: boolean | null, video_retention_days: number | null } | null, error: any }
 
             if (!error && data) {
                 setPastSubmissionDays(data.past_submission_days ?? 0)
                 setFutureSubmissionDays(data.future_submission_days ?? 0)
                 setDeadlineMode(data.deadline_mode ?? 'none')
                 setShowDuplicateToUser(data.show_duplicate_to_user ?? false)
+                setVideoRetentionDays(data.video_retention_days ?? 30)
             }
+        }
+
+        const fetchStorageUsage = async () => {
+            const totalBytes = await getTotalStorageUsedBytes()
+            setStorageUsedBytes(totalBytes)
         }
 
         const fetchGamificationSettings = async () => {
@@ -127,6 +144,7 @@ export default function SubmissionSettingsPage() {
 
         fetchCalendarSettings()
         fetchGamificationSettings()
+        fetchStorageUsage()
     }, [selectedClientId])
 
     const handleUpdateCalendarSettings = async () => {
@@ -139,7 +157,8 @@ export default function SubmissionSettingsPage() {
                 past_submission_days: pastSubmissionDays,
                 future_submission_days: futureSubmissionDays,
                 deadline_mode: deadlineMode,
-                show_duplicate_to_user: showDuplicateToUser
+                show_duplicate_to_user: showDuplicateToUser,
+                video_retention_days: videoRetentionDays
             })
             .eq('id', selectedClientId)
 
@@ -697,6 +716,78 @@ export default function SubmissionSettingsPage() {
                                 className="w-full"
                             >
                                 {isUpdatingGamification ? '保存中...' : 'ゲーミフィケーション設定を保存'}
+                            </Button>
+                        </CardContent>
+                    </Card>
+                </div>
+
+                {/* Storage Management Card */}
+                <div className="space-y-6 md:col-span-1 xl:col-span-2">
+                    <Card className="border-primary/20 shadow-md">
+                        <CardHeader className="bg-primary/5 border-b">
+                            <CardTitle className="flex items-center gap-2 text-primary">
+                                <HardDrive className="w-5 h-5" /> ストレージ管理
+                            </CardTitle>
+                            <CardDescription>
+                                動画ファイルの保持期間とストレージ使用量を管理します。
+                            </CardDescription>
+                        </CardHeader>
+                        <CardContent className="space-y-6 pt-6">
+                            {/* 使用量表示 */}
+                            <div className="space-y-2">
+                                <div className="flex items-center gap-2">
+                                    <Label>現在の使用量（全クライアント合計）</Label>
+                                    <Popover>
+                                        <PopoverTrigger asChild>
+                                            <button className="text-muted-foreground hover:text-foreground transition-colors">
+                                                <Info className="w-4 h-4" />
+                                            </button>
+                                        </PopoverTrigger>
+                                        <PopoverContent className="w-80 text-sm space-y-2">
+                                            <p className="text-muted-foreground">
+                                                ストレージ使用量は、全クライアントの動画ファイルサイズの合計（DBに記録された video_size の合計値）から算出しています。動画が削除済み（r2_key が null）のレコードは含みません。実際の R2 ストレージ使用量とは、孤立ファイル等により若干異なる場合があります（孤立ファイルはアプリ起動時に自動クリーンアップされます）。
+                                            </p>
+                                            <p className="text-muted-foreground">
+                                                使用量はこのページを開いた時点（またはクライアント切り替え時）に取得されます。最新の値を確認するにはページを再読み込みしてください。
+                                            </p>
+                                        </PopoverContent>
+                                    </Popover>
+                                </div>
+                                <div className="text-2xl font-bold">
+                                    {(storageUsedBytes / 1024 / 1024 / 1024).toFixed(2)} GB
+                                    <span className="text-base font-normal text-muted-foreground"> / 10 GB</span>
+                                </div>
+                                <Progress
+                                    value={Math.min((storageUsedBytes / (10 * 1024 * 1024 * 1024)) * 100, 100)}
+                                    className="h-3"
+                                />
+                            </div>
+
+                            {/* 保持期間設定 */}
+                            <div className="space-y-2">
+                                <Label>動画保持期間</Label>
+                                <div className="flex items-center gap-3">
+                                    <Input
+                                        type="number"
+                                        min={7}
+                                        max={365}
+                                        value={videoRetentionDays}
+                                        onChange={(e) => setVideoRetentionDays(Number(e.target.value))}
+                                        className="w-24"
+                                    />
+                                    <span className="text-sm text-muted-foreground">日</span>
+                                </div>
+                                <p className="text-xs text-muted-foreground">
+                                    この期間を過ぎた動画ファイルは自動的にR2から削除されます。提出記録（日付、ステータス等）はそのまま保持されます。
+                                </p>
+                            </div>
+
+                            <Button
+                                onClick={handleUpdateCalendarSettings}
+                                disabled={isUpdatingCalendarSettings}
+                                className="w-full"
+                            >
+                                {isUpdatingCalendarSettings ? '保存中...' : '設定を保存'}
                             </Button>
                         </CardContent>
                     </Card>

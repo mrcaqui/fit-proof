@@ -290,8 +290,6 @@ export default function CalendarPage() {
                                         <p className="font-semibold mb-1">🔥 連続日数</p>
                                         <p className="text-muted-foreground">
                                             投稿を続けた日数です。定休日はカウントされません。
-                                            週{gamification.settings.straight.weekly_target}日達成でストレート獲得！
-                                            {gamification.settings.shield.enabled && ' シールドやリバイバルで途切れを防げます！'}
                                         </p>
                                     </PopoverContent>
                                 </Popover>
@@ -378,7 +376,7 @@ export default function CalendarPage() {
                                     </PopoverTrigger>
                                     <PopoverContent className="w-64 text-sm">
                                         <p className="font-semibold mb-1">🔥 リバイバル</p>
-                                        <p className="text-muted-foreground">過去の空白日を後から埋めてストリークを復活させた回数。諦めない心の証！</p>
+                                        <p className="text-muted-foreground">過去の空白日を後から埋めて連続日数を復活させた回数。諦めない心の証！</p>
                                     </PopoverContent>
                                 </Popover>
                             )}

@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { Database } from "@/types/database.types"
 import { PutObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3'
-import { r2Client, R2_BUCKET_NAME } from '@/lib/r2'
+import { r2Client, R2_BUCKET_NAME, checkR2StorageAvailable, deleteR2Object } from '@/lib/r2'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/context/AuthContext'
 import { generateThumbnail } from '@/utils/thumbnail'
@@ -144,14 +144,29 @@ export function UploadModal({ targetDate, onClose, onSuccess, items, completedSu
             const normalizedItemId = typeof itemId === 'number' ? itemId : null
 
             // 既存のレコードを検索（同じユーザー、同じ日付、同じ項目）
+            // video_size も取得して既存ファイルのサイズを差分チェックに使う
             const { data: existing } = await supabase
                 .from('submissions')
-                .select('id, r2_key')
+                .select('id, r2_key, video_size')
                 .match({
                     user_id: user.id,
                     target_date: targetDateStr,
                     submission_item_id: normalizedItemId
-                }) as { data: { id: number, r2_key: string | null }[] | null }
+                }) as { data: { id: number, r2_key: string | null, video_size: number | null }[] | null }
+
+            // 全件合算（複数レコード時に差分を正しく計算するため）
+            const existingTotalSize = (existing || []).reduce((sum, r) => sum + (r.video_size || 0), 0)
+
+            // ① 早期 UX チェック（非原子的・先行フィードバック用）
+            // この時点ではまだ delete/upload 未実施のため existingTotalSize を差し引いて判定する
+            const storageCheck = await checkR2StorageAvailable(state.file.size, existingTotalSize)
+            if (!storageCheck.available) {
+                updateState(itemId, {
+                    error: 'ストレージが一杯のため、アップロードできません。管理者に連絡してください。',
+                    isUploading: false
+                })
+                return
+            }
 
             // 既存レコードがあれば削除（DB & R2）
             if (existing && existing.length > 0) {
@@ -209,7 +224,18 @@ export function UploadModal({ targetDate, onClose, onSuccess, items, completedSu
 
             console.log('[Upload Debug] Database response:', { dbError, dbData })
 
-            if (dbError) throw new Error('Failed to save submission record')
+            if (dbError) {
+                // INSERT 失敗 → アップロード済み R2 オブジェクトを削除（孤立防止）
+                await deleteR2Object(key).catch(e => console.error('R2 cleanup failed:', e))
+                if (dbError.message?.includes('STORAGE_LIMIT_EXCEEDED')) {
+                    updateState(itemId, {
+                        error: 'ストレージが一杯のため、アップロードできません。管理者に連絡してください。',
+                        isUploading: false
+                    })
+                    return
+                }
+                throw new Error('Failed to save submission record')
+            }
 
             updateState(itemId, { success: true, file: null, thumbnail: null })
             if (fileInputRefs.current[itemId]) {

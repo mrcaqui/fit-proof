@@ -24,6 +24,7 @@ export interface Database {
                     perfect_week_count: number
                     revival_success_count: number
                     gamification_settings: Record<string, unknown> | null
+                    video_retention_days: number | null
                 }
                 Insert: {
                     id: string
@@ -39,6 +40,7 @@ export interface Database {
                     perfect_week_count?: number
                     revival_success_count?: number
                     gamification_settings?: Record<string, unknown> | null
+                    video_retention_days?: number | null
                 }
                 Update: {
                     id?: string
@@ -54,6 +56,7 @@ export interface Database {
                     perfect_week_count?: number
                     revival_success_count?: number
                     gamification_settings?: Record<string, unknown> | null
+                    video_retention_days?: number | null
                 }
             }
             submission_items: {
