@@ -27,6 +27,7 @@ import { useSubmissionRules } from '@/hooks/useSubmissionRules'
 import { useSubmissionItems } from '@/hooks/useSubmissionItems'
 import { useSwipeable } from 'react-swipeable'
 import { useGamification } from '@/hooks/useGamification'
+import { getGroupInfoForDate } from '@/utils/groupFulfillment'
 import { GamificationNotifications } from '@/components/gamification/GamificationPopup'
 // Popover is used instead of Tooltip for better mobile compatibility
 
@@ -61,6 +62,14 @@ export default function CalendarPage() {
 
     // グループ設定
     const groupConfigs = useMemo(() => getAllGroupConfigs(), [getAllGroupConfigs])
+
+    // グループ充足判定コールバック（SwipeableWorkoutView用）
+    const checkGroupFulfilled = useMemo(() => {
+        return (date: Date): boolean => {
+            const info = getGroupInfoForDate(date, groupConfigs, workouts)
+            return info?.isFulfilled ?? false
+        }
+    }, [groupConfigs, workouts])
 
     // ゲーミフィケーションフック
     const gamification = useGamification({
@@ -492,6 +501,10 @@ export default function CalendarPage() {
                                     s.is_revival === true
                                 )
 
+                                // グループ情報の計算
+                                const groupInfo = getGroupInfoForDate(date, groupConfigs, workouts)
+                                const isGroupFulfilled = groupInfo?.isFulfilled ?? false
+
                                 // 投稿可能範囲の計算
                                 const today = startOfDay(new Date())
                                 const dateStart = startOfDay(date)
@@ -585,15 +598,20 @@ export default function CalendarPage() {
                                                 </div>
                                             ) : (
                                                 <>
-                                                    {/* Progress Indicator */}
-                                                    {effectiveItems.length > 0 && showInfo && (
+                                                    {/* Progress: グループ日はグループ日数進捗、それ以外はアイテム進捗 */}
+                                                    {groupInfo && (showInfo || isGroupFulfilled) ? (
+                                                        <div className={`text-[9px] font-bold flex items-center justify-center gap-1 leading-none ${groupInfo.postedDaysCount >= groupInfo.requiredCount ? 'text-green-600' : 'text-orange-500'}`}>
+                                                            <span>{groupInfo.groupLabel}</span>
+                                                            <span>{groupInfo.postedDaysCount}/{groupInfo.requiredCount}</span>
+                                                        </div>
+                                                    ) : effectiveItems.length > 0 && showInfo ? (
                                                         <div className={`text-[9px] font-bold flex items-center justify-center gap-0.5 leading-none ${isComplete ? 'text-green-600' : 'text-orange-500'}`}>
                                                             <span>{submittedCount}/{totalItems}</span>
                                                         </div>
-                                                    )}
+                                                    ) : null}
 
                                                     {/* Deadline */}
-                                                    {deadlineRule && showInfo && (
+                                                    {deadlineRule && (showInfo || isGroupFulfilled) && (
                                                         <div className="text-[9px] text-muted-foreground flex items-center justify-center gap-0.5 opacity-80 whitespace-nowrap leading-none pb-0.5">
                                                             <Clock className="w-2.5 h-2.5 shrink-0" />
                                                             <span>~{deadlineRule}</span>
@@ -633,6 +651,7 @@ export default function CalendarPage() {
                     return clientProfile?.future_submission_days ?? profile?.future_submission_days ?? 0
                 })()}
                 isRestDay={isRestDayForDate}
+                isGroupFulfilledForDate={checkGroupFulfilled}
                 isLate={isDeadlinePassed(selectedDate)}
                 deadlineMode={(() => {
                     const clientProfile = selectedClientId ? clients.find(c => c.id === selectedClientId) : null

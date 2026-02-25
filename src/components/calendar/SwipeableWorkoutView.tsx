@@ -28,6 +28,7 @@ interface SwipeableWorkoutViewProps {
   pastAllowed?: number
   futureAllowed?: number
   isRestDay?: (date: Date) => boolean
+  isGroupFulfilledForDate?: (date: Date) => boolean
   isLate?: boolean
   deadlineMode?: 'none' | 'mark'
   showDuplicateToUser?: boolean
@@ -50,6 +51,7 @@ export function SwipeableWorkoutView({
   pastAllowed = 0,
   futureAllowed = 0,
   isRestDay = () => false,
+  isGroupFulfilledForDate = () => false,
   isLate = false,
   deadlineMode = 'none',
   showDuplicateToUser = false
@@ -185,9 +187,10 @@ export function SwipeableWorkoutView({
             (daysDiff > 0 && daysDiff <= futureAllowed) || // 未来
             (daysDiff < 0 && Math.abs(daysDiff) <= pastAllowed) // 過去
 
-          // 未投稿項目（他人のカレンダー閲覧時 / 投稿制限範囲外 / 休息日 は表示しない）
+          // 未投稿項目（他人のカレンダー閲覧時 / 投稿制限範囲外 / 休息日 / グループ達成済み は表示しない）
           const isDateRestDay = isRestDay(date)
-          const pendingItems = (isViewingOtherUser || !isWithinAllowedRange || isDateRestDay) ? [] : effectiveItems.filter(item => !submittedItemIds.has(item.id))
+          const isDateGroupFulfilled = isGroupFulfilledForDate(date)
+          const pendingItems = (isViewingOtherUser || !isWithinAllowedRange || isDateRestDay || isDateGroupFulfilled) ? [] : effectiveItems.filter(item => !submittedItemIds.has(item.id))
           const hasContent = submissions.length > 0 || pendingItems.length > 0
 
           if (!hasContent) {
@@ -198,6 +201,11 @@ export function SwipeableWorkoutView({
                     <span className="flex flex-col items-center gap-2">
                       <span className="text-lg font-medium">🌙 本日は休息日です</span>
                       <span className="text-xs opacity-70">しっかり休んで次のトレーニングに備えましょう</span>
+                    </span>
+                  ) : isDateGroupFulfilled ? (
+                    <span className="flex flex-col items-center gap-2">
+                      <span className="text-lg font-medium">グループ達成済み</span>
+                      <span className="text-xs opacity-70">この週のグループノルマは達成済みです。投稿は不要です。</span>
                     </span>
                   ) : (
                     'この日のワークアウトはありません'
