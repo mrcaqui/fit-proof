@@ -27,7 +27,7 @@ interface SwipeableWorkoutViewProps {
   isViewingOtherUser?: boolean
   pastAllowed?: number
   futureAllowed?: number
-  isRestDay?: boolean
+  isRestDay?: (date: Date) => boolean
   isLate?: boolean
   deadlineMode?: 'none' | 'mark'
   showDuplicateToUser?: boolean
@@ -49,7 +49,7 @@ export function SwipeableWorkoutView({
   isViewingOtherUser = false,
   pastAllowed = 0,
   futureAllowed = 0,
-  isRestDay = false,
+  isRestDay = () => false,
   isLate = false,
   deadlineMode = 'none',
   showDuplicateToUser = false
@@ -90,8 +90,8 @@ export function SwipeableWorkoutView({
     const endOfDate = new Date(date)
     endOfDate.setHours(23, 59, 59, 999)
     return submissionItems.filter(item => {
-      const created = parseISO(item.created_at)
-      return created <= endOfDate
+      const effective = parseISO(item.effective_from)
+      return effective <= endOfDate
     })
   }, [submissionItems])
 
@@ -186,14 +186,15 @@ export function SwipeableWorkoutView({
             (daysDiff < 0 && Math.abs(daysDiff) <= pastAllowed) // 過去
 
           // 未投稿項目（他人のカレンダー閲覧時 / 投稿制限範囲外 / 休息日 は表示しない）
-          const pendingItems = (isViewingOtherUser || !isWithinAllowedRange || isRestDay) ? [] : effectiveItems.filter(item => !submittedItemIds.has(item.id))
+          const isDateRestDay = isRestDay(date)
+          const pendingItems = (isViewingOtherUser || !isWithinAllowedRange || isDateRestDay) ? [] : effectiveItems.filter(item => !submittedItemIds.has(item.id))
           const hasContent = submissions.length > 0 || pendingItems.length > 0
 
           if (!hasContent) {
             return (
               <div className="py-12 text-center rounded-lg border border-dashed border-muted-foreground/20">
                 <p className="text-sm text-muted-foreground">
-                  {isRestDay ? (
+                  {isDateRestDay ? (
                     <span className="flex flex-col items-center gap-2">
                       <span className="text-lg font-medium">🌙 本日は休息日です</span>
                       <span className="text-xs opacity-70">しっかり休んで次のトレーニングに備えましょう</span>

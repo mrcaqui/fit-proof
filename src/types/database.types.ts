@@ -65,18 +65,21 @@ export interface Database {
                     user_id: string
                     name: string
                     created_at: string
+                    effective_from: string
                 }
                 Insert: {
                     id?: number
                     user_id: string
                     name: string
                     created_at?: string
+                    effective_from?: string
                 }
                 Update: {
                     id?: number
                     user_id?: string
                     name?: string
                     created_at?: string
+                    effective_from?: string
                 }
             }
             submissions: {
@@ -143,32 +146,41 @@ export interface Database {
                 Row: {
                     id: number
                     user_id: string
-                    rule_type: 'deadline' | 'target_day'
+                    rule_type: 'deadline' | 'target_day' | 'rest_day' | 'group'
                     scope: 'monthly' | 'weekly' | 'daily'
                     day_of_week: number | null
                     specific_date: string | null
                     value: string | null
                     created_at: string
+                    effective_from: string
+                    group_id: string | null
+                    group_required_count: number | null
                 }
                 Insert: {
                     id?: number
                     user_id: string
-                    rule_type: 'deadline' | 'target_day'
+                    rule_type: 'deadline' | 'target_day' | 'rest_day' | 'group'
                     scope: 'monthly' | 'weekly' | 'daily'
                     day_of_week?: number | null
                     specific_date?: string | null
                     value?: string | null
                     created_at?: string
+                    effective_from?: string
+                    group_id?: string | null
+                    group_required_count?: number | null
                 }
                 Update: {
                     id?: number
                     user_id?: string
-                    rule_type?: 'deadline' | 'target_day'
+                    rule_type?: 'deadline' | 'target_day' | 'rest_day' | 'group'
                     scope?: 'monthly' | 'weekly' | 'daily'
                     day_of_week?: number | null
                     specific_date?: string | null
                     value?: string | null
                     created_at?: string
+                    effective_from?: string
+                    group_id?: string | null
+                    group_required_count?: number | null
                 }
             }
             admin_comments: {

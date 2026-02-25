@@ -45,8 +45,11 @@ export default function CalendarPage() {
 
     // Determine whose rules to fetch: selected user for admin, or self for client
     const targetUserId = isAdmin ? (selectedClientId || user?.id) : user?.id
-    const { getRuleForDate, isDeadlinePassed, loading: _rulesLoading } = useSubmissionRules(targetUserId)
-    const { items: submissionItems } = useSubmissionItems(targetUserId)
+    const {
+        getRuleForDate, isDeadlinePassed, loading: _rulesLoading,
+        isRestDayForDate, getAllGroupConfigs
+    } = useSubmissionRules(targetUserId)
+    const { items: submissionItems, getEffectiveSubmissionItems } = useSubmissionItems(targetUserId)
 
     const { workouts, loading, refetch, deleteWorkout, updateWorkoutStatus, addAdminComment, deleteAdminComment, markCommentAsRead } = useWorkoutHistory(selectedClientId)
     const [selectedDate, setSelectedDate] = useState<Date>(new Date())
@@ -54,16 +57,17 @@ export default function CalendarPage() {
     const [isDatePickerOpen, setIsDatePickerOpen] = useState(false)
 
     // 定休日判定関数
-    const isRestDay = (date: Date): boolean => {
-        const targetDayRule = getRuleForDate(date, 'target_day')
-        return targetDayRule !== null && targetDayRule !== 'true'
-    }
+    const isRestDay = isRestDayForDate
+
+    // グループ設定
+    const groupConfigs = useMemo(() => getAllGroupConfigs(), [getAllGroupConfigs])
 
     // ゲーミフィケーションフック
     const gamification = useGamification({
         targetUserId: isAdmin ? selectedClientId : user?.id,
         submissions: workouts,
-        isRestDay
+        isRestDay,
+        groupConfigs
     })
 
     // クライアント側: localStorageから保留中のリバイバル通知を読み取り表示
@@ -216,16 +220,6 @@ export default function CalendarPage() {
     }, [workouts])
 
 
-
-    // 効果的な提出項目を取得するヘルパー関数
-    const getEffectiveSubmissionItems = (date: Date) => {
-        const endOfTargetDate = new Date(date)
-        endOfTargetDate.setHours(23, 59, 59, 999)
-        return submissionItems.filter(item => {
-            const created = parseISO(item.created_at)
-            return created <= endOfTargetDate
-        })
-    }
 
     if (loading && workouts.length === 0) {
         return <div className="p-8 text-center text-muted-foreground animate-pulse">データを読み込み中...</div>
@@ -459,8 +453,7 @@ export default function CalendarPage() {
 
                                 // Fetch rules for this specific day
                                 const deadlineRule = getRuleForDate(date, 'deadline')
-                                const targetDayRule = getRuleForDate(date, 'target_day')
-                                const isTargetDay = targetDayRule === null || targetDayRule === 'true'
+                                const isTargetDay = !isRestDayForDate(date)
 
                                 // Calculate required items for this specific date
                                 const effectiveItems = getEffectiveSubmissionItems(date)
@@ -639,10 +632,7 @@ export default function CalendarPage() {
                     const clientProfile = selectedClientId ? clients.find(c => c.id === selectedClientId) : null
                     return clientProfile?.future_submission_days ?? profile?.future_submission_days ?? 0
                 })()}
-                isRestDay={(() => {
-                    const targetDayRule = getRuleForDate(selectedDate, 'target_day')
-                    return targetDayRule !== null && targetDayRule !== 'true'
-                })()}
+                isRestDay={isRestDayForDate}
                 isLate={isDeadlinePassed(selectedDate)}
                 deadlineMode={(() => {
                     const clientProfile = selectedClientId ? clients.find(c => c.id === selectedClientId) : null

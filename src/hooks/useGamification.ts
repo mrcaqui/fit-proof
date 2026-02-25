@@ -7,8 +7,8 @@ import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/context/AuthContext'
 import { Database } from '@/types/database.types'
 import { GamificationSettings, DEFAULT_GAMIFICATION_SETTINGS } from '@/types/gamification.types'
-import { calculateStreak, isRevivalCandidate, SubmissionForStreak, IsRestDayFn } from '@/utils/streakCalculator'
-import { format, parseISO, startOfDay, eachDayOfInterval } from 'date-fns'
+import { calculateStreak, isRevivalCandidate, SubmissionForStreak, IsRestDayFn, GroupConfig } from '@/utils/streakCalculator'
+import { format, parseISO, startOfDay, eachDayOfInterval, startOfWeek } from 'date-fns'
 
 type Profile = Database['public']['Tables']['profiles']['Row']
 type Submission = Database['public']['Tables']['submissions']['Row']
@@ -38,9 +38,10 @@ interface UseGamificationOptions {
     targetUserId?: string
     submissions: Submission[]
     isRestDay: (date: Date) => boolean
+    groupConfigs?: GroupConfig[]
 }
 
-export function useGamification({ targetUserId, submissions, isRestDay }: UseGamificationOptions) {
+export function useGamification({ targetUserId, submissions, isRestDay, groupConfigs }: UseGamificationOptions) {
     const { user } = useAuth()
     const effectiveUserId = targetUserId || user?.id
 
@@ -170,15 +171,23 @@ export function useGamification({ targetUserId, submissions, isRestDay }: UseGam
     // シールド残数: effective_from 設定時は 0 リセット
     const effectiveShieldStock = effectiveFrom ? 0 : (gamificationProfile.shield_stock ?? 0)
 
+    // グループ設定を日付関数として生成
+    const getGroupConfigsForDate = useCallback((date: Date): GroupConfig[] => {
+        if (!groupConfigs) return []
+        const dateStr = format(date, 'yyyy-MM-dd')
+        return groupConfigs.filter(g => g.effectiveFrom <= dateStr)
+    }, [groupConfigs])
+
     // ストリーク計算（オンデマンド）
     const streakResult = useMemo(() => {
         return calculateStreak(
             submissionsForStreak,
             isRestDay,
             effectiveShieldStock,
-            effectiveFrom
+            effectiveFrom,
+            getGroupConfigsForDate
         )
-    }, [submissionsForStreak, isRestDay, effectiveShieldStock, effectiveFrom])
+    }, [submissionsForStreak, isRestDay, effectiveShieldStock, effectiveFrom, getGroupConfigsForDate])
 
     // リバイバル回数: effective_from がある場合はオンデマンド計算
     const revivalSuccessCount = useMemo(() => {
@@ -192,9 +201,9 @@ export function useGamification({ targetUserId, submissions, isRestDay }: UseGam
     const perfectWeekCount = useMemo(() => {
         if (!effectiveFrom) return gamificationProfile.perfect_week_count ?? 0
         return calculateCumulativePerfectWeeks(
-            filteredSubmissions, isRestDay, gamificationSettings.straight.weekly_target
+            filteredSubmissions, isRestDay, gamificationSettings.straight.weekly_target, getGroupConfigsForDate
         )
-    }, [effectiveFrom, filteredSubmissions, isRestDay, gamificationProfile.perfect_week_count, gamificationSettings.straight.weekly_target])
+    }, [effectiveFrom, filteredSubmissions, isRestDay, gamificationProfile.perfect_week_count, gamificationSettings.straight.weekly_target, getGroupConfigsForDate])
 
     // ゲーミフィケーション状態
     const state: GamificationState = useMemo(() => ({
@@ -348,7 +357,8 @@ export function useGamification({ targetUserId, submissions, isRestDay }: UseGam
 function calculateCumulativePerfectWeeks(
     submissions: SubmissionForStreak[],
     isRestDay: IsRestDayFn,
-    weeklyTarget: number
+    weeklyTarget: number,
+    getGroupConfigs?: (date: Date) => GroupConfig[]
 ): number {
     const approvedDates = new Set(
         submissions.filter(s => s.status === 'success' && s.target_date).map(s => s.target_date!)
@@ -362,13 +372,46 @@ function calculateCumulativePerfectWeeks(
 
     let perfectStreak = 0
     let count = 0
-    const startDate = parseISO(allDates[0])
+    const startDateObj = parseISO(allDates[0])
     const endDate = startOfDay(new Date())
-    const days = eachDayOfInterval({ start: startDate, end: endDate })
+    const days = eachDayOfInterval({ start: startDateObj, end: endDate })
+
+    // グループ事前計算（正順）
+    const groupApprovalCountMap = new Map<string, number>()
+    for (const day of days) {
+        const dateStr = format(day, 'yyyy-MM-dd')
+        const dayOfWeek = day.getDay()
+        const weekKey = format(startOfWeek(day, { weekStartsOn: 1 }), 'yyyy-MM-dd')
+        const activeGroupConfigs = getGroupConfigs ? getGroupConfigs(day) : []
+        for (const group of activeGroupConfigs) {
+            if (!group.daysOfWeek.includes(dayOfWeek)) continue
+            if (approvedDates.has(dateStr)) {
+                const mapKey = `${weekKey}-${group.groupId}`
+                groupApprovalCountMap.set(mapKey, (groupApprovalCountMap.get(mapKey) ?? 0) + 1)
+            }
+        }
+    }
 
     for (const day of days) {
         if (isRestDay(day)) continue
         const dateStr = format(day, 'yyyy-MM-dd')
+        const dayOfWeek = day.getDay()
+        const weekKey = format(startOfWeek(day, { weekStartsOn: 1 }), 'yyyy-MM-dd')
+
+        // グループスキップ判定
+        const activeGroupConfigs = getGroupConfigs ? getGroupConfigs(day) : []
+        let isGroupSkipDay = false
+        for (const group of activeGroupConfigs) {
+            if (!group.daysOfWeek.includes(dayOfWeek)) continue
+            const mapKey = `${weekKey}-${group.groupId}`
+            const totalApproved = groupApprovalCountMap.get(mapKey) ?? 0
+            if (!approvedDates.has(dateStr) && totalApproved >= group.requiredCount) {
+                isGroupSkipDay = true
+                break
+            }
+        }
+        if (isGroupSkipDay) continue
+
         if (approvedDates.has(dateStr) && !revivalDates.has(dateStr)) {
             perfectStreak++
             if (perfectStreak >= weeklyTarget && perfectStreak % weeklyTarget === 0) {

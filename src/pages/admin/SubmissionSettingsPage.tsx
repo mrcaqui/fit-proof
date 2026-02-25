@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
-import { Plus, Trash2, Calendar as CalendarIcon, Clock, Gamepad2, HardDrive, Info } from 'lucide-react'
+import { Plus, Trash2, Calendar as CalendarIcon, Clock, Gamepad2, HardDrive, Info, Users } from 'lucide-react'
 import {
     Select,
     SelectContent,
@@ -48,7 +48,10 @@ const SUBMISSION_DAYS_OPTIONS = [
 export default function SubmissionSettingsPage() {
     const [selectedClientId, setSelectedClientId] = useState<string>('')
     const [clients, setClients] = useState<{ id: string; display_name: string | null }[]>([])
-    const { rules, loading, refetch } = useSubmissionRules(selectedClientId)
+    const {
+        rules, loading, refetch,
+        getAllGroupConfigs, getTargetDaysPerWeek
+    } = useSubmissionRules(selectedClientId)
 
     // Deadline form state
     const [d_scope, setDScope] = useState<'monthly' | 'weekly' | 'daily'>('monthly')
@@ -56,11 +59,10 @@ export default function SubmissionSettingsPage() {
     const [d_date, setDDate] = useState<string>(format(new Date(), 'yyyy-MM-dd'))
     const [d_time, setDTime] = useState('19:00')
 
-    // TargetDay form state
-    const [t_scope, setTScope] = useState<'monthly' | 'weekly' | 'daily'>('weekly')
-    const [t_days, setTDays] = useState<number[]>([])
-    const [t_date, setTDate] = useState<string>(format(new Date(), 'yyyy-MM-dd'))
-    const [t_value, setTValue] = useState(false)
+    // RestDay / Group form state
+    const [restDaySelectedDays, setRestDaySelectedDays] = useState<number[]>([])
+    const [pendingGroupDays, setPendingGroupDays] = useState<number[]>([])
+    const [pendingGroupRequired, setPendingGroupRequired] = useState<number>(1)
 
     // Calendar submission limit state
     const [pastSubmissionDays, setPastSubmissionDays] = useState<number>(0)
@@ -222,26 +224,26 @@ export default function SubmissionSettingsPage() {
         }))
     }
 
-    const { items: submissionItems, refetch: refetchItems } = useSubmissionItems(selectedClientId)
+    const { items: submissionItems, refetch: refetchItems, handleUpdateItemEffectiveFrom } = useSubmissionItems(selectedClientId)
     const [newItemName, setNewItemName] = useState('')
 
-    const handleUpdateItemCreatedAt = async (id: number, newDate: string) => {
-        const client = supabase.from('submission_items' as any) as any
+    const handleUpdateRuleEffectiveFrom = async (id: number, newDate: string) => {
+        const client = supabase.from('submission_rules' as any) as any
         const { error } = await client
-            .update({ created_at: new Date(newDate + 'T00:00:00').toISOString() })
+            .update({ effective_from: new Date(newDate + 'T00:00:00').toISOString() })
             .eq('id', id)
         if (error) {
             alert('日付の更新に失敗しました: ' + error.message)
         } else {
-            refetchItems()
+            refetch()
         }
     }
 
-    const handleUpdateRuleCreatedAt = async (id: number, newDate: string) => {
+    const handleUpdateGroupEffectiveFrom = async (groupId: string, newDate: string) => {
         const client = supabase.from('submission_rules' as any) as any
         const { error } = await client
-            .update({ created_at: new Date(newDate + 'T00:00:00').toISOString() })
-            .eq('id', id)
+            .update({ effective_from: new Date(newDate + 'T00:00:00').toISOString() })
+            .eq('group_id', groupId)
         if (error) {
             alert('日付の更新に失敗しました: ' + error.message)
         } else {
@@ -282,39 +284,34 @@ export default function SubmissionSettingsPage() {
         }
     }
 
-    // Existing handlers...
-    const handleAddRule = async (type: 'deadline' | 'target_day') => {
+    // Deadline handler
+    const handleAddDeadlineRule = async () => {
         if (!selectedClientId) return
 
-        const scope = type === 'deadline' ? d_scope : t_scope
-        const value = type === 'deadline' ? d_time : String(t_value)
-        const specificDate = type === 'deadline' ? d_date : t_date
-        const days = type === 'deadline' ? d_days : t_days
-
-        if (scope === 'weekly' && days.length === 0) {
+        if (d_scope === 'weekly' && d_days.length === 0) {
             alert('曜日を選択してください')
             return
         }
 
-        const inserts = []
+        const inserts: any[] = []
 
-        if (scope === 'weekly') {
-            days.forEach(day => {
+        if (d_scope === 'weekly') {
+            d_days.forEach(day => {
                 inserts.push({
                     user_id: selectedClientId,
-                    rule_type: type,
+                    rule_type: 'deadline',
                     scope: 'weekly',
                     day_of_week: day,
-                    value: value
+                    value: d_time
                 })
             })
         } else {
             inserts.push({
                 user_id: selectedClientId,
-                rule_type: type,
-                scope: scope,
-                specific_date: scope === 'daily' ? specificDate : null,
-                value: value
+                rule_type: 'deadline',
+                scope: d_scope,
+                specific_date: d_scope === 'daily' ? d_date : null,
+                value: d_time
             })
         }
 
@@ -323,9 +320,114 @@ export default function SubmissionSettingsPage() {
         if (error) {
             alert('Error adding rule: ' + error.message)
         } else {
-            // Reset week selection
-            if (type === 'deadline') setDDays([])
-            else setTDays([])
+            setDDays([])
+            refetch()
+        }
+    }
+
+    // 休息日追加ハンドラ
+    const handleAddRestDayRule = async () => {
+        if (!selectedClientId) return
+        if (restDaySelectedDays.length === 0) {
+            alert('曜日を選択してください')
+            return
+        }
+
+        // グループとの重複チェック
+        const groupConfigs = getAllGroupConfigs()
+        const groupDays = new Set(groupConfigs.flatMap(g => g.daysOfWeek))
+        const overlap = restDaySelectedDays.filter(d => groupDays.has(d))
+        if (overlap.length > 0) {
+            const overlapLabels = overlap.map(d => DAYS_OF_WEEK.find(dw => dw.value === d)?.label).join('、')
+            alert(`${overlapLabels}曜はグループ設定と重複しています`)
+            return
+        }
+
+        const inserts = restDaySelectedDays.map(day => ({
+            user_id: selectedClientId,
+            rule_type: 'rest_day' as const,
+            scope: 'weekly' as const,
+            day_of_week: day,
+        }))
+
+        const { error } = await supabase.from('submission_rules' as any).insert(inserts as any)
+
+        if (error) {
+            alert('Error adding rest day rule: ' + error.message)
+        } else {
+            setRestDaySelectedDays([])
+            refetch()
+        }
+    }
+
+    // グループ追加ハンドラ
+    const handleAddGroupRule = async () => {
+        if (!selectedClientId) return
+        if (pendingGroupDays.length < 2) {
+            alert('グループには2曜日以上を選択してください')
+            return
+        }
+        if (pendingGroupRequired < 1 || pendingGroupRequired >= pendingGroupDays.length) {
+            alert('必要日数は1以上かつ曜日数未満にしてください')
+            return
+        }
+
+        // 休息日との重複チェック
+        const restDayNums = new Set(
+            rules
+                .filter(r => r.rule_type === 'rest_day' && r.scope === 'weekly' && r.day_of_week !== null)
+                .map(r => r.day_of_week!)
+        )
+        const groupConfigs = getAllGroupConfigs()
+        const existingGroupDays = new Set(groupConfigs.flatMap(g => g.daysOfWeek))
+
+        const overlapRest = pendingGroupDays.filter(d => restDayNums.has(d))
+        if (overlapRest.length > 0) {
+            const labels = overlapRest.map(d => DAYS_OF_WEEK.find(dw => dw.value === d)?.label).join('、')
+            alert(`${labels}曜はすでに休息日として設定されています`)
+            return
+        }
+
+        const overlapGroup = pendingGroupDays.filter(d => existingGroupDays.has(d))
+        if (overlapGroup.length > 0) {
+            const labels = overlapGroup.map(d => DAYS_OF_WEEK.find(dw => dw.value === d)?.label).join('、')
+            alert(`${labels}曜はすでに別のグループとして設定されています`)
+            return
+        }
+
+        const groupId = crypto.randomUUID()
+        const inserts = pendingGroupDays.map(day => ({
+            user_id: selectedClientId,
+            rule_type: 'group' as const,
+            scope: 'weekly' as const,
+            day_of_week: day,
+            group_id: groupId,
+            group_required_count: pendingGroupRequired,
+        }))
+
+        const { error } = await supabase.from('submission_rules' as any).insert(inserts as any)
+
+        if (error) {
+            alert('Error adding group rule: ' + error.message)
+        } else {
+            setPendingGroupDays([])
+            setPendingGroupRequired(1)
+            refetch()
+        }
+    }
+
+    // グループ削除ハンドラ
+    const handleDeleteGroupRule = async (groupId: string) => {
+        if (!confirm('このグループ設定を削除してよろしいですか？')) return
+
+        const { error } = await (supabase
+            .from('submission_rules' as any)
+            .delete()
+            .eq('group_id', groupId) as any)
+
+        if (error) {
+            alert('Error deleting group: ' + error.message)
+        } else {
             refetch()
         }
     }
@@ -347,12 +449,16 @@ export default function SubmissionSettingsPage() {
 
     if (loading && clients.length === 0) return <div className="p-8 text-center animate-pulse">読み込み中...</div>
 
-    const toggleDay = (day: number, type: 'deadline' | 'target_day') => {
-        if (type === 'deadline') {
-            setDDays(prev => prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day])
-        } else {
-            setTDays(prev => prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day])
-        }
+    const toggleDeadlineDay = (day: number) => {
+        setDDays(prev => prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day])
+    }
+
+    const toggleRestDay = (day: number) => {
+        setRestDaySelectedDays(prev => prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day])
+    }
+
+    const toggleGroupDay = (day: number) => {
+        setPendingGroupDays(prev => prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day])
     }
 
     return (
@@ -833,8 +939,8 @@ export default function SubmissionSettingsPage() {
                                                         <Input
                                                             type="date"
                                                             className="h-7 w-36 text-xs"
-                                                            value={format(parseISO(item.created_at), 'yyyy-MM-dd')}
-                                                            onChange={(e) => handleUpdateItemCreatedAt(item.id, e.target.value)}
+                                                            value={format(parseISO(item.effective_from), 'yyyy-MM-dd')}
+                                                            onChange={(e) => handleUpdateItemEffectiveFrom(item.id, e.target.value)}
                                                         />
                                                     </div>
                                                     <Button
@@ -902,7 +1008,7 @@ export default function SubmissionSettingsPage() {
                                                             ? "shadow-md scale-105 border-primary ring-2 ring-primary/20"
                                                             : "border-transparent bg-muted/20"
                                                     )}
-                                                    onClick={() => toggleDay(d.value, 'deadline')}
+                                                    onClick={() => toggleDeadlineDay(d.value)}
                                                 >
                                                     {d.label}
                                                 </Button>
@@ -918,7 +1024,7 @@ export default function SubmissionSettingsPage() {
                                     </div>
                                 )}
 
-                                <Button className="w-full" onClick={() => handleAddRule('deadline')}>
+                                <Button className="w-full" onClick={handleAddDeadlineRule}>
                                     <Plus className="w-4 h-4 mr-2" /> 期限ルールを追加
                                 </Button>
 
@@ -977,93 +1083,109 @@ export default function SubmissionSettingsPage() {
                     </Card>
 
                     <RuleList
-                        type="deadline"
                         rules={rules.filter(r => r.rule_type === 'deadline')}
                         onDelete={handleDeleteRule}
-                        onUpdateCreatedAt={handleUpdateRuleCreatedAt}
+                        onUpdateEffectiveFrom={handleUpdateRuleEffectiveFrom}
+                        onUpdateGroupEffectiveFrom={handleUpdateGroupEffectiveFrom}
+                        onDeleteGroup={handleDeleteGroupRule}
                     />
                 </div>
 
-                {/* Target Day Card */}
+                {/* 目標日の設定 Card */}
                 <div className="space-y-6">
                     <Card className="border-primary/20 shadow-md">
                         <CardHeader className="bg-primary/5 border-b">
                             <CardTitle className="flex items-center gap-2 text-primary">
-                                <CalendarIcon className="w-5 h-5" /> 投稿対象日の設定
+                                <CalendarIcon className="w-5 h-5" /> 目標日の設定
                             </CardTitle>
                             <CardDescription>
-                                投稿を行う日か、休息日かを設定します
+                                週目標日数: <span className="font-bold">{getTargetDaysPerWeek()} 日</span>（自動計算）
                             </CardDescription>
                         </CardHeader>
                         <CardContent className="space-y-6 pt-6">
-                            <div className="space-y-4">
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                    <div className="space-y-2">
-                                        <Label>適用範囲</Label>
-                                        <Select value={t_scope} onValueChange={(v: any) => setTScope(v)}>
-                                            <SelectTrigger><SelectValue /></SelectTrigger>
-                                            <SelectContent>
-                                                <SelectItem value="weekly">曜日指定</SelectItem>
-                                                <SelectItem value="daily">特定の日</SelectItem>
-                                            </SelectContent>
-                                        </Select>
-                                    </div>
-                                    <div className="space-y-2">
-                                        <Label>設定内容</Label>
-                                        <Select value={String(t_value)} onValueChange={v => setTValue(v === 'true')}>
-                                            <SelectTrigger><SelectValue /></SelectTrigger>
-                                            <SelectContent>
-                                                <SelectItem value="false">対象外 (休息日)</SelectItem>
-                                                <SelectItem value="true">投稿対象 (トレーニング日)</SelectItem>
-                                            </SelectContent>
-                                        </Select>
-                                    </div>
+                            {/* 休息日セクション */}
+                            <div className="space-y-3 p-4 rounded-lg border bg-muted/10">
+                                <Label className="font-semibold">休息日</Label>
+                                <p className="text-xs text-muted-foreground">
+                                    投稿不要の曜日を選択します。ストリーク計算でもカウントされません。
+                                </p>
+                                <div className="flex flex-wrap gap-2">
+                                    {DAYS_OF_WEEK.map(d => (
+                                        <Button
+                                            key={d.value}
+                                            type="button"
+                                            variant={restDaySelectedDays.includes(d.value) ? "default" : "outline"}
+                                            size="sm"
+                                            className={cn(
+                                                "w-10 h-10 p-0 rounded-full transition-all duration-200 border-2",
+                                                restDaySelectedDays.includes(d.value)
+                                                    ? "shadow-md scale-105 border-primary ring-2 ring-primary/20"
+                                                    : "border-transparent bg-muted/20"
+                                            )}
+                                            onClick={() => toggleRestDay(d.value)}
+                                        >
+                                            {d.label}
+                                        </Button>
+                                    ))}
                                 </div>
+                                <Button className="w-full" onClick={handleAddRestDayRule} disabled={restDaySelectedDays.length === 0}>
+                                    <Plus className="w-4 h-4 mr-2" /> 休息日を追加
+                                </Button>
+                            </div>
 
-                                {t_scope === 'weekly' && (
-                                    <div className="space-y-2">
-                                        <Label>曜日（複数選択可）</Label>
-                                        <div className="flex flex-wrap gap-2">
-                                            {DAYS_OF_WEEK.map(d => (
-                                                <Button
-                                                    key={d.value}
-                                                    type="button"
-                                                    variant={t_days.includes(d.value) ? "default" : "outline"}
-                                                    size="sm"
-                                                    className={cn(
-                                                        "w-10 h-10 p-0 rounded-full transition-all duration-200 border-2",
-                                                        t_days.includes(d.value)
-                                                            ? "shadow-md scale-105 border-primary ring-2 ring-primary/20"
-                                                            : "border-transparent bg-muted/20"
-                                                    )}
-                                                    onClick={() => toggleDay(d.value, 'target_day')}
-                                                >
-                                                    {d.label}
-                                                </Button>
-                                            ))}
-                                        </div>
-                                    </div>
-                                )}
-
-                                {t_scope === 'daily' && (
-                                    <div className="space-y-2">
-                                        <Label>日付</Label>
-                                        <Input type="date" value={t_date} onChange={e => setTDate(e.target.value)} />
-                                    </div>
-                                )}
-
-                                <Button className="w-full" onClick={() => handleAddRule('target_day')}>
-                                    <Plus className="w-4 h-4 mr-2" /> 対象設定ルールを追加
+                            {/* グループセクション */}
+                            <div className="space-y-3 p-4 rounded-lg border bg-muted/10">
+                                <div className="flex items-center gap-2">
+                                    <Users className="w-4 h-4 text-primary" />
+                                    <Label className="font-semibold">グループ</Label>
+                                </div>
+                                <p className="text-xs text-muted-foreground">
+                                    複数の曜日をまとめ、そのうち N 日投稿すればよい設定です。例：「土日のうち1日」
+                                </p>
+                                <div className="flex flex-wrap gap-2">
+                                    {DAYS_OF_WEEK.map(d => (
+                                        <Button
+                                            key={d.value}
+                                            type="button"
+                                            variant={pendingGroupDays.includes(d.value) ? "default" : "outline"}
+                                            size="sm"
+                                            className={cn(
+                                                "w-10 h-10 p-0 rounded-full transition-all duration-200 border-2",
+                                                pendingGroupDays.includes(d.value)
+                                                    ? "shadow-md scale-105 border-primary ring-2 ring-primary/20"
+                                                    : "border-transparent bg-muted/20"
+                                            )}
+                                            onClick={() => toggleGroupDay(d.value)}
+                                        >
+                                            {d.label}
+                                        </Button>
+                                    ))}
+                                </div>
+                                <div className="flex items-center gap-3">
+                                    <Label className="text-sm text-muted-foreground whitespace-nowrap">そのうち</Label>
+                                    <Input
+                                        type="number"
+                                        min={1}
+                                        max={Math.max(1, pendingGroupDays.length - 1)}
+                                        value={pendingGroupRequired}
+                                        onChange={(e) => setPendingGroupRequired(Number(e.target.value))}
+                                        className="w-16"
+                                    />
+                                    <Label className="text-sm text-muted-foreground whitespace-nowrap">日でよい</Label>
+                                </div>
+                                <Button className="w-full" onClick={handleAddGroupRule} disabled={pendingGroupDays.length < 2}>
+                                    <Plus className="w-4 h-4 mr-2" /> グループを追加
                                 </Button>
                             </div>
                         </CardContent>
                     </Card>
 
                     <RuleList
-                        type="target_day"
-                        rules={rules.filter(r => r.rule_type === 'target_day')}
+                        rules={rules.filter(r => r.rule_type === 'rest_day' || r.rule_type === 'group')}
                         onDelete={handleDeleteRule}
-                        onUpdateCreatedAt={handleUpdateRuleCreatedAt}
+                        onUpdateEffectiveFrom={handleUpdateRuleEffectiveFrom}
+                        onUpdateGroupEffectiveFrom={handleUpdateGroupEffectiveFrom}
+                        onDeleteGroup={handleDeleteGroupRule}
                     />
                 </div>
             </div>
@@ -1071,11 +1193,12 @@ export default function SubmissionSettingsPage() {
     )
 }
 
-function RuleList({ type, rules, onDelete, onUpdateCreatedAt }: {
-    type: 'deadline' | 'target_day',
+function RuleList({ rules, onDelete, onUpdateEffectiveFrom, onUpdateGroupEffectiveFrom, onDeleteGroup }: {
     rules: any[],
     onDelete: (id: number) => void,
-    onUpdateCreatedAt: (id: number, newDate: string) => void
+    onUpdateEffectiveFrom: (id: number, newDate: string) => void,
+    onUpdateGroupEffectiveFrom: (groupId: string, newDate: string) => void,
+    onDeleteGroup: (groupId: string) => void
 }) {
     if (rules.length === 0) {
         return <div className="text-center py-8 bg-muted/10 rounded-lg text-muted-foreground text-sm border-dashed border-2">
@@ -1083,20 +1206,87 @@ function RuleList({ type, rules, onDelete, onUpdateCreatedAt }: {
         </div>
     }
 
-    // Sort: Daily > Weekly > Monthly, then CreatedAt Desc, then ID Desc (tiebreaker)
-    const sortedRules = [...rules].sort((a, b) => {
+    // グループルールをまとめて表示するために group_id でグルーピング
+    const groupMap = new Map<string, any[]>()
+    const nonGroupRules: any[] = []
+    for (const rule of rules) {
+        if (rule.group_id) {
+            if (!groupMap.has(rule.group_id)) groupMap.set(rule.group_id, [])
+            groupMap.get(rule.group_id)!.push(rule)
+        } else {
+            nonGroupRules.push(rule)
+        }
+    }
+
+    // Sort: Daily > Weekly > Monthly, then effective_from Desc, then ID Desc
+    const sortedNonGroupRules = [...nonGroupRules].sort((a, b) => {
         const scopeOrder = { daily: 0, weekly: 1, monthly: 2 } as const
         const scopeDiff = (scopeOrder[a.scope as keyof typeof scopeOrder] ?? 99) -
                           (scopeOrder[b.scope as keyof typeof scopeOrder] ?? 99)
         if (scopeDiff !== 0) return scopeDiff
-        const dateDiff = new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        const dateDiff = new Date(b.effective_from).getTime() - new Date(a.effective_from).getTime()
         if (dateDiff !== 0) return dateDiff
         return b.id - a.id
     })
 
+    const ruleTypeLabel = (rule: any): string => {
+        if (rule.rule_type === 'deadline') return rule.value || ''
+        if (rule.rule_type === 'rest_day') return '休息日'
+        if (rule.rule_type === 'target_day') return rule.value === 'true' ? '対象' : '休息日'
+        return ''
+    }
+
     return (
         <div className="space-y-2 max-h-[400px] overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-muted">
-            {sortedRules.map(rule => (
+            {/* グループルール */}
+            {Array.from(groupMap.entries()).map(([groupId, groupRules]) => {
+                const daysLabels = groupRules
+                    .filter(r => r.day_of_week !== null)
+                    .map(r => DAYS_OF_WEEK.find(d => d.value === r.day_of_week)?.label)
+                    .join('・')
+                const requiredCount = groupRules[0].group_required_count ?? 1
+                const effectiveFrom = groupRules[0].effective_from
+
+                return (
+                    <div key={groupId} className="group flex flex-col gap-2 p-3 rounded-lg border bg-card hover:border-primary/30 transition-colors">
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                                <div className="w-2 h-2 rounded-full bg-emerald-500" />
+                                <div>
+                                    <div className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider">
+                                        Group
+                                    </div>
+                                    <div className="text-sm font-medium">
+                                        {daysLabels}
+                                        <span className="mx-2 text-muted-foreground opacity-50">→</span>
+                                        <span className="font-bold">うち{requiredCount}日</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-muted-foreground hover:text-destructive opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity"
+                                onClick={() => onDeleteGroup(groupId)}
+                            >
+                                <Trash2 className="w-4 h-4" />
+                            </Button>
+                        </div>
+                        <div className="flex items-center gap-1.5 text-xs text-muted-foreground pl-5">
+                            <span>適用開始:</span>
+                            <Input
+                                type="date"
+                                className="h-7 w-36 text-xs"
+                                value={format(parseISO(effectiveFrom), 'yyyy-MM-dd')}
+                                onChange={(e) => onUpdateGroupEffectiveFrom(groupId, e.target.value)}
+                            />
+                        </div>
+                    </div>
+                )
+            })}
+
+            {/* 非グループルール */}
+            {sortedNonGroupRules.map(rule => (
                 <div key={rule.id} className="group flex flex-col gap-2 p-3 rounded-lg border bg-card hover:border-primary/30 transition-colors">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-3">
@@ -1113,10 +1303,10 @@ function RuleList({ type, rules, onDelete, onUpdateCreatedAt }: {
                                 <div className="text-sm font-medium">
                                     {rule.scope === 'monthly' && "全体設定"}
                                     {rule.scope === 'weekly' && `${DAYS_OF_WEEK.find(d => d.value === rule.day_of_week)?.label}曜`}
-                                    {rule.scope === 'daily' && format(parseISO(rule.specific_date), 'MM/dd')}
+                                    {rule.scope === 'daily' && rule.specific_date && format(parseISO(rule.specific_date), 'MM/dd')}
                                     <span className="mx-2 text-muted-foreground opacity-50">→</span>
                                     <span className="font-bold">
-                                        {type === 'deadline' ? rule.value : (rule.value === 'true' ? "対象" : "休息日")}
+                                        {ruleTypeLabel(rule)}
                                     </span>
                                 </div>
                             </div>
@@ -1135,8 +1325,8 @@ function RuleList({ type, rules, onDelete, onUpdateCreatedAt }: {
                         <Input
                             type="date"
                             className="h-7 w-36 text-xs"
-                            value={format(parseISO(rule.created_at), 'yyyy-MM-dd')}
-                            onChange={(e) => onUpdateCreatedAt(rule.id, e.target.value)}
+                            value={format(parseISO(rule.effective_from), 'yyyy-MM-dd')}
+                            onChange={(e) => onUpdateEffectiveFrom(rule.id, e.target.value)}
                         />
                     </div>
                 </div>

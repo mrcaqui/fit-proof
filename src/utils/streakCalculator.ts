@@ -3,7 +3,7 @@
  * オンデマンドで承認済み履歴と定休日設定から各種実績を算出
  */
 
-import { format, eachDayOfInterval, subDays, isBefore, startOfDay } from 'date-fns'
+import { format, eachDayOfInterval, subDays, isBefore, startOfDay, startOfWeek } from 'date-fns'
 
 /**
  * 投稿データの最小型
@@ -29,6 +29,17 @@ export interface StreakResult {
  * 日付が定休日かどうかを判定する関数の型
  */
 export type IsRestDayFn = (date: Date) => boolean
+
+/**
+ * グループ設定の型
+ * 複数の曜日をまとめ「そのうち N 日投稿すればよい」と設定するルール
+ */
+export interface GroupConfig {
+    groupId: string
+    daysOfWeek: number[]   // 0=日〜6=土
+    requiredCount: number  // このグループ内で必要な投稿日数
+    effectiveFrom: string  // 適用開始日（常に 'yyyy-MM-dd' 形式）
+}
 
 /**
  * 承認済み投稿のある日付セットを生成
@@ -58,17 +69,20 @@ function getRevivalDates(submissions: SubmissionForStreak[]): Set<string> {
 
 /**
  * 現在のストリークを計算（オンデマンド）
- * 
+ *
  * @param submissions - 全投稿データ
  * @param isRestDay - 定休日判定関数
  * @param currentShieldStock - 現在のシールド残数
+ * @param effectiveFrom - 適用開始日
+ * @param getGroupConfigs - 日付ベースのグループ設定取得関数
  * @returns ストリーク計算結果
  */
 export function calculateStreak(
     submissions: SubmissionForStreak[],
     isRestDay: IsRestDayFn,
     currentShieldStock: number,
-    effectiveFrom?: Date
+    effectiveFrom?: Date,
+    getGroupConfigs?: (date: Date) => GroupConfig[]
 ): StreakResult {
     const approvedDates = getApprovedDates(submissions)
     const revivalDates = getRevivalDates(submissions)
@@ -85,7 +99,31 @@ export function calculateStreak(
     const startDate = subDays(today, 90)
     const days = eachDayOfInterval({ start: startDate, end: today })
 
-    // 最新の連続記録を逆順で計算
+    // フェーズA: グループ事前計算（正順）
+    // weekKey: 月曜始まりの週開始日（yyyy-MM-dd）。土日を同一週に含めるため weekStartsOn: 1 を使用。
+    // キー: "${weekKey}-${group.groupId}"、値: その週のグループ内承認日数
+    const groupApprovalCountMap = new Map<string, number>()
+    // groupShieldConsumedMap: グループ/週ごとに消費済みシールド枚数を管理する
+    const groupShieldConsumedMap = new Map<string, number>()
+
+    for (const day of days) {
+        // effectiveFrom カットオフ
+        if (effectiveFrom && isBefore(startOfDay(day), startOfDay(effectiveFrom))) continue
+
+        const dateStr = format(day, 'yyyy-MM-dd')
+        const dayOfWeek = day.getDay()
+        const weekKey = format(startOfWeek(day, { weekStartsOn: 1 }), 'yyyy-MM-dd')
+        const activeGroupConfigs = getGroupConfigs ? getGroupConfigs(day) : []
+        for (const group of activeGroupConfigs) {
+            if (!group.daysOfWeek.includes(dayOfWeek)) continue
+            if (approvedDates.has(dateStr)) {
+                const mapKey = `${weekKey}-${group.groupId}`
+                groupApprovalCountMap.set(mapKey, (groupApprovalCountMap.get(mapKey) ?? 0) + 1)
+            }
+        }
+    }
+
+    // フェーズB: 最新の連続記録を逆順で計算
     for (let i = days.length - 1; i >= 0; i--) {
         const day = days[i]
         const dateStr = format(day, 'yyyy-MM-dd')
@@ -99,6 +137,25 @@ export function calculateStreak(
         if (isRestDay(day)) {
             continue
         }
+
+        const dayOfWeek = day.getDay()
+        const weekKey = format(startOfWeek(day, { weekStartsOn: 1 }), 'yyyy-MM-dd')
+
+        // グループスキップ判定: この日が未承認かつ、グループ義務が実績またはシールドで充足済みなら余剰日としてスキップ
+        const activeDayGroupConfigs = getGroupConfigs ? getGroupConfigs(day) : []
+        let isGroupSkipDay = false
+        for (const group of activeDayGroupConfigs) {
+            if (!group.daysOfWeek.includes(dayOfWeek)) continue
+            const mapKey = `${weekKey}-${group.groupId}`
+            const totalApproved = groupApprovalCountMap.get(mapKey) ?? 0
+            const deficit = group.requiredCount - totalApproved
+            const consumed = groupShieldConsumedMap.get(mapKey) ?? 0
+            if (!approvedDates.has(dateStr) && (totalApproved >= group.requiredCount || consumed >= deficit)) {
+                isGroupSkipDay = true
+                break
+            }
+        }
+        if (isGroupSkipDay) continue
 
         const hasApproval = approvedDates.has(dateStr)
         const isRevival = revivalDates.has(dateStr)
@@ -117,16 +174,34 @@ export function calculateStreak(
                 currentPerfectStreak = 0
             }
         } else {
-            // 承認がない日
-            if (shieldsRemaining > 0) {
-                // シールドで守る
-                shieldDays.push(dateStr)
-                shieldsRemaining--
-                consecutiveDays++
-                currentPerfectStreak = 0 // シールド使用でストレートはリセット
-            } else {
-                // ストリーク終了
+            // 承認がない日のシールド処理（グループ対応）
+            let groupHandled = false
+            for (const group of activeDayGroupConfigs) {
+                if (!group.daysOfWeek.includes(dayOfWeek)) continue
+                const mapKey = `${weekKey}-${group.groupId}`
+                const totalApproved = groupApprovalCountMap.get(mapKey) ?? 0
+                if (totalApproved >= group.requiredCount) break // スキップ済みのはず
+                // deficit > consumed であることが isGroupSkipDay により保証されている
+                if (shieldsRemaining > 0) {
+                    shieldsRemaining--
+                    const consumed = groupShieldConsumedMap.get(mapKey) ?? 0
+                    groupShieldConsumedMap.set(mapKey, consumed + 1)
+                    shieldDays.push(dateStr)
+                    consecutiveDays++
+                    currentPerfectStreak = 0
+                    groupHandled = true
+                }
                 break
+            }
+            if (!groupHandled) {
+                if (shieldsRemaining > 0) {
+                    shieldDays.push(dateStr)
+                    shieldsRemaining--
+                    consecutiveDays++
+                    currentPerfectStreak = 0
+                } else {
+                    break // ストリーク終了
+                }
             }
         }
     }
@@ -144,7 +219,7 @@ export function calculateStreak(
 
 /**
  * 過去投稿がリバイバル対象かを判定
- * 
+ *
  * @param targetDate - 投稿対象日
  * @param submissions - 全投稿データ（この投稿を含まない）
  * @param isRestDay - 定休日判定関数
@@ -183,7 +258,7 @@ export function isRevivalCandidate(
 /**
  * ストレート達成時にシールドを付与するかを判定
  * 7日連続（シールド/リバイバル不使用）達成でシールド+1（上限3）
- * 
+ *
  * @param currentStreak - 現在のストリーク
  * @param shieldStock - 現在のシールド残数
  * @param usedShieldOrRevival - シールドまたはリバイバルを使用したか
