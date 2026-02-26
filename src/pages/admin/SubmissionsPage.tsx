@@ -17,7 +17,7 @@ import {
 type Submission = {
     id: number
     user_id: string
-    type: 'video' | 'comment'
+    type: 'video' | 'comment' | 'shield'
     r2_key: string | null
     thumbnail_url: string | null
     duration: number | null
@@ -48,6 +48,7 @@ export default function SubmissionsPage() {
                 *,
                 profiles (display_name)
             `)
+            .neq('type', 'shield')
             .order('created_at', { ascending: false })
 
         if (error) {

@@ -48,7 +48,7 @@ export default function CalendarPage() {
     const targetUserId = isAdmin ? (selectedClientId || user?.id) : user?.id
     const {
         getRuleForDate, isDeadlinePassed, loading: _rulesLoading,
-        isRestDayForDate, getAllGroupConfigs
+        isRestDayForDate, getAllGroupConfigs, getTargetDaysPerWeek
     } = useSubmissionRules(targetUserId)
     const { items: submissionItems, getEffectiveSubmissionItems } = useSubmissionItems(targetUserId)
 
@@ -71,12 +71,16 @@ export default function CalendarPage() {
         }
     }, [groupConfigs, workouts])
 
+    // isViewingOtherUser の動的計算
+    const isViewingOtherUser = Boolean(isAdmin && selectedClientId && selectedClientId !== user?.id)
+
     // ゲーミフィケーションフック
     const gamification = useGamification({
         targetUserId: isAdmin ? selectedClientId : user?.id,
         submissions: workouts,
         isRestDay,
-        groupConfigs
+        groupConfigs,
+        getTargetDaysPerWeek,
     })
 
     // クライアント側: localStorageから保留中のリバイバル通知を読み取り表示
@@ -193,7 +197,7 @@ export default function CalendarPage() {
             submittedItemIds: Set<number | null>; // 重複カウント防止用
         }> = {}
 
-        workouts.forEach(s => {
+        workouts.filter(s => s.type !== 'shield').forEach(s => {
             if (!s.target_date) return
             const d = parseISO(s.target_date)
             const key = format(d, "yyyy-MM-dd")
@@ -339,7 +343,7 @@ export default function CalendarPage() {
                                     <PopoverContent className="w-64 text-sm">
                                         <p className="font-semibold mb-1">🛡️ シールド</p>
                                         <p className="text-muted-foreground">
-                                            投稿を忘れた日に自動消費され、ストリークを守ります。
+                                            投稿していない日に手動で適用してストリークを守れます。カレンダーの日別画面から適用できます。
                                             {gamification.settings.shield.condition_type === 'straight_count'
                                                 ? `ストレート${gamification.settings.shield.straight_count}回達成でシールド+1獲得！`
                                                 : '月の全対象日をストレート達成でシールド+1獲得！'}
@@ -357,11 +361,19 @@ export default function CalendarPage() {
                                             <span className="font-semibold text-base">{gamification.state.perfectWeekCount}</span>
                                         </button>
                                     </PopoverTrigger>
-                                    <PopoverContent className="w-64 text-sm">
+                                    <PopoverContent className="w-72 text-sm">
                                         <p className="font-semibold mb-1">👑 ストレート達成</p>
                                         <p className="text-muted-foreground">
-                                            週{gamification.settings.straight.weekly_target}日をシールドやリバイバルなしで達成した回数。真の継続力の証！
+                                            {(() => {
+                                                const settings = gamification.settings.straight
+                                                const conditions: string[] = []
+                                                if (!settings.allow_revival) conditions.push('リバイバルなし')
+                                                if (!settings.allow_shield) conditions.push('シールドなし')
+                                                const condText = conditions.length > 0 ? `${conditions.join('・')}で` : ''
+                                                return `1週間（月〜日）で目標日数を${condText}達成した回数`
+                                            })()}
                                         </p>
+                                        <p className="text-xs text-muted-foreground/70 mt-1">※ 過去投稿可能期間が過ぎた週のみカウントされます</p>
                                     </PopoverContent>
                                 </Popover>
                             )}
@@ -641,7 +653,11 @@ export default function CalendarPage() {
                 onPlay={(key: string) => setSelectedVideo(getR2PublicUrl(key))}
                 submissionItems={submissionItems}
                 onUploadSuccess={() => refetch(true)}
-                isViewingOtherUser={false}
+                isViewingOtherUser={isViewingOtherUser}
+                shieldStock={gamification.state.shieldStock}
+                isShieldDay={gamification.isShieldDay}
+                onApplyShield={gamification.applyShield}
+                onRemoveShield={gamification.removeShield}
                 pastAllowed={(() => {
                     const clientProfile = selectedClientId ? clients.find(c => c.id === selectedClientId) : null
                     return clientProfile?.past_submission_days ?? profile?.past_submission_days ?? 0

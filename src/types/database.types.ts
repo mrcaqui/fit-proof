@@ -86,7 +86,7 @@ export interface Database {
                 Row: {
                     id: number
                     user_id: string
-                    type: 'video' | 'comment'
+                    type: 'video' | 'comment' | 'shield'
                     r2_key: string | null
                     thumbnail_url: string | null
                     duration: number | null
@@ -106,7 +106,7 @@ export interface Database {
                 Insert: {
                     id?: number
                     user_id: string
-                    type: 'video' | 'comment'
+                    type: 'video' | 'comment' | 'shield'
                     r2_key?: string | null
                     thumbnail_url?: string | null
                     duration?: number | null
@@ -125,7 +125,7 @@ export interface Database {
                 Update: {
                     id?: number
                     user_id?: string
-                    type?: 'video' | 'comment'
+                    type?: 'video' | 'comment' | 'shield'
                     r2_key?: string | null
                     thumbnail_url?: string | null
                     duration?: number | null

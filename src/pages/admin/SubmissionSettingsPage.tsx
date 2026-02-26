@@ -137,7 +137,15 @@ export default function SubmissionSettingsPage() {
             if (!error && data?.gamification_settings) {
                 setGamificationSettings({
                     ...DEFAULT_GAMIFICATION_SETTINGS,
-                    ...data.gamification_settings
+                    ...data.gamification_settings,
+                    straight: {
+                        ...DEFAULT_GAMIFICATION_SETTINGS.straight,
+                        ...(data.gamification_settings.straight ?? {}),
+                    },
+                    shield: {
+                        ...DEFAULT_GAMIFICATION_SETTINGS.shield,
+                        ...(data.gamification_settings.shield ?? {}),
+                    },
                 })
             } else {
                 setGamificationSettings(DEFAULT_GAMIFICATION_SETTINGS)
@@ -639,22 +647,64 @@ export default function SubmissionSettingsPage() {
                                     </label>
                                 </div>
                                 {gamificationSettings.straight.enabled && (
-                                    <div className="flex items-center gap-3 pl-7">
-                                        <Label className="text-sm text-muted-foreground">週</Label>
-                                        <Select
-                                            value={String(gamificationSettings.straight.weekly_target)}
-                                            onValueChange={(v) => updateStraightSettings({ weekly_target: Number(v) })}
-                                        >
-                                            <SelectTrigger className="w-20">
-                                                <SelectValue />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                {[1, 2, 3, 4, 5, 6, 7].map(n => (
-                                                    <SelectItem key={n} value={String(n)}>{n}</SelectItem>
-                                                ))}
-                                            </SelectContent>
-                                        </Select>
-                                        <Label className="text-sm text-muted-foreground">日達成でストレート獲得</Label>
+                                    <div className="space-y-3 pl-7">
+                                        {/* 目標日数の指定方法 */}
+                                        <label className="flex items-center gap-3 cursor-pointer">
+                                            <input
+                                                type="radio"
+                                                name="straightTargetMode"
+                                                checked={gamificationSettings.straight.use_target_days}
+                                                onChange={() => updateStraightSettings({ use_target_days: true })}
+                                            />
+                                            <span className="text-sm">目標日数設定に基づく（自動計算）</span>
+                                        </label>
+                                        <label className="flex items-center gap-3 cursor-pointer">
+                                            <input
+                                                type="radio"
+                                                name="straightTargetMode"
+                                                checked={!gamificationSettings.straight.use_target_days}
+                                                onChange={() => updateStraightSettings({ use_target_days: false })}
+                                            />
+                                            <span className="text-sm">手動で指定:</span>
+                                            <Select
+                                                value={String(gamificationSettings.straight.custom_required_days)}
+                                                onValueChange={(v) => updateStraightSettings({ custom_required_days: Number(v) })}
+                                                disabled={gamificationSettings.straight.use_target_days}
+                                            >
+                                                <SelectTrigger className="w-20">
+                                                    <SelectValue />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    {[1, 2, 3, 4, 5, 6, 7].map(n => (
+                                                        <SelectItem key={n} value={String(n)}>{n}</SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                            <span className="text-sm">日/週</span>
+                                        </label>
+
+                                        {/* 許容設定 */}
+                                        <div className="border-t pt-3 space-y-2">
+                                            <Label className="text-xs text-muted-foreground">ストレート達成時に許容する項目</Label>
+                                            <label className="flex items-center gap-2 cursor-pointer">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={gamificationSettings.straight.allow_revival}
+                                                    onChange={(e) => updateStraightSettings({ allow_revival: e.target.checked })}
+                                                    className="w-4 h-4 rounded"
+                                                />
+                                                <span className="text-sm">リバイバル投稿を達成としてカウント</span>
+                                            </label>
+                                            <label className="flex items-center gap-2 cursor-pointer">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={gamificationSettings.straight.allow_shield}
+                                                    onChange={(e) => updateStraightSettings({ allow_shield: e.target.checked })}
+                                                    className="w-4 h-4 rounded"
+                                                />
+                                                <span className="text-sm">シールド適用を達成としてカウント</span>
+                                            </label>
+                                        </div>
                                     </div>
                                 )}
                             </div>

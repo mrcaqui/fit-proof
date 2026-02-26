@@ -5,7 +5,10 @@
 // ストレート達成設定
 export interface GamificationStraightSettings {
     enabled: boolean        // UI表示するか
-    weekly_target: number   // 週◯日達成でストレート（1-7）
+    use_target_days: boolean      // true: 目標日数設定から自動計算, false: custom_required_days を使用
+    custom_required_days: number  // use_target_days=false 時に使う手動指定日数 (1-7)
+    allow_revival: boolean        // ストレート判定でリバイバル日を許容するか
+    allow_shield: boolean         // ストレート判定でシールド日を許容するか
 }
 
 // シールド設定
@@ -45,7 +48,10 @@ export interface GamificationSettings {
 export const DEFAULT_GAMIFICATION_SETTINGS: GamificationSettings = {
     straight: {
         enabled: true,
-        weekly_target: 7    // デフォルト: 週7日
+        use_target_days: true,
+        custom_required_days: 7,
+        allow_revival: false,
+        allow_shield: false,
     },
     shield: {
         enabled: true,

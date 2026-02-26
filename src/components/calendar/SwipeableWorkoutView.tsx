@@ -25,6 +25,10 @@ interface SwipeableWorkoutViewProps {
   submissionItems?: SubmissionItem[]
   onUploadSuccess?: () => void
   isViewingOtherUser?: boolean
+  shieldStock?: number
+  isShieldDay?: (date: Date) => boolean
+  onApplyShield?: (targetDate: string) => Promise<boolean>
+  onRemoveShield?: (targetDate: string) => Promise<boolean>
   pastAllowed?: number
   futureAllowed?: number
   isRestDay?: (date: Date) => boolean
@@ -48,6 +52,10 @@ export function SwipeableWorkoutView({
   submissionItems = [],
   onUploadSuccess,
   isViewingOtherUser = false,
+  shieldStock = 0,
+  isShieldDay,
+  onApplyShield,
+  onRemoveShield,
   pastAllowed = 0,
   futureAllowed = 0,
   isRestDay = () => false,
@@ -175,8 +183,10 @@ export function SwipeableWorkoutView({
         </div>
 
         {(() => {
+          // shield 行を除外した実際の投稿
+          const videoCommentSubmissions = submissions.filter(w => w.type !== 'shield')
           // 投稿済み項目のIDセット
-          const submittedItemIds = new Set(submissions.map(s => s.submission_item_id))
+          const submittedItemIds = new Set(videoCommentSubmissions.map(s => s.submission_item_id))
 
           // 投稿制限チェック
           const today = startOfDay(new Date())
@@ -186,12 +196,22 @@ export function SwipeableWorkoutView({
             daysDiff === 0 || // 今日は常にOK
             (daysDiff > 0 && daysDiff <= futureAllowed) || // 未来
             (daysDiff < 0 && Math.abs(daysDiff) <= pastAllowed) // 過去
+          const isWithinPastDays = daysDiff <= 0 && Math.abs(daysDiff) <= pastAllowed
+
+          // シールド判定
+          const isShield = isShieldDay?.(date) ?? false
+          const hasVideoComment = videoCommentSubmissions.length > 0
 
           // 未投稿項目（他人のカレンダー閲覧時 / 投稿制限範囲外 / 休息日 / グループ達成済み は表示しない）
           const isDateRestDay = isRestDay(date)
           const isDateGroupFulfilled = isGroupFulfilledForDate(date)
           const pendingItems = (isViewingOtherUser || !isWithinAllowedRange || isDateRestDay || isDateGroupFulfilled) ? [] : effectiveItems.filter(item => !submittedItemIds.has(item.id))
-          const hasContent = submissions.length > 0 || pendingItems.length > 0
+
+          // シールドボタン表示条件
+          const showShieldApply = !isViewingOtherUser && !hasVideoComment && !isShield && shieldStock > 0 && isWithinPastDays && daysDiff < 0 && !isDateRestDay && !isDateGroupFulfilled
+          const showShieldRemove = !isViewingOtherUser && isShield && isWithinPastDays
+
+          const hasContent = videoCommentSubmissions.length > 0 || pendingItems.length > 0 || showShieldApply || showShieldRemove || isShield
 
           if (!hasContent) {
             return (
@@ -217,8 +237,46 @@ export function SwipeableWorkoutView({
 
           return (
             <div className="flex flex-col gap-3">
+              {/* シールド適用済み表示 */}
+              {isShield && (
+                <div className="flex items-center gap-2 p-3 rounded-lg border border-primary/20 bg-primary/5">
+                  <img src="/assets/shield.png" alt="シールド" className="w-8 h-8" />
+                  <div>
+                    <p className="text-sm font-semibold">シールド適用中</p>
+                    <p className="text-xs text-muted-foreground">この日はシールドでストリークが守られています</p>
+                  </div>
+                </div>
+              )}
+              {/* シールド適用ボタン */}
+              {isMain && showShieldApply && (
+                <Button
+                  variant="outline"
+                  className="flex items-center gap-2 w-full justify-center"
+                  onClick={() => {
+                    const dateStr = format(date, 'yyyy-MM-dd')
+                    onApplyShield?.(dateStr)
+                  }}
+                >
+                  <img src="/assets/shield.png" alt="" className="w-5 h-5" />
+                  シールドを適用
+                </Button>
+              )}
+              {/* シールド取り消しボタン */}
+              {isMain && showShieldRemove && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-muted-foreground"
+                  onClick={() => {
+                    const dateStr = format(date, 'yyyy-MM-dd')
+                    onRemoveShield?.(dateStr)
+                  }}
+                >
+                  シールドを取り消す
+                </Button>
+              )}
               {/* 投稿済み動画 */}
-              {submissions.map((s) => {
+              {videoCommentSubmissions.map((s) => {
                 const item = effectiveItems.find(i => i.id === s.submission_item_id)
                 return (
                   <WorkoutCard

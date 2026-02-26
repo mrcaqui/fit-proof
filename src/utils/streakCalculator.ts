@@ -3,7 +3,7 @@
  * オンデマンドで承認済み履歴と定休日設定から各種実績を算出
  */
 
-import { format, eachDayOfInterval, subDays, isBefore, startOfDay, startOfWeek } from 'date-fns'
+import { format, eachDayOfInterval, subDays, addDays, isBefore, startOfDay, startOfWeek } from 'date-fns'
 
 /**
  * 投稿データの最小型
@@ -12,6 +12,7 @@ export interface SubmissionForStreak {
     target_date: string | null
     status: 'success' | 'fail' | 'excused' | null
     is_revival: boolean
+    type: 'video' | 'comment' | 'shield'
 }
 
 /**
@@ -19,10 +20,8 @@ export interface SubmissionForStreak {
  */
 export interface StreakResult {
     currentStreak: number
-    shieldDays: string[]        // シールドで守られた日（YYYY-MM-DD形式）
+    shieldDays: string[]        // type='shield' の submissions から取得した日付（YYYY-MM-DD形式）
     revivalDays: string[]       // リバイバルで復活した日（YYYY-MM-DD形式）
-    perfectWeekCount: number    // ストレート達成回数
-    shieldsConsumed: number     // 今回消費されるシールド数
 }
 
 /**
@@ -42,12 +41,12 @@ export interface GroupConfig {
 }
 
 /**
- * 承認済み投稿のある日付セットを生成
+ * 承認済み投稿のある日付セットを生成（shield は除外）
  */
 function getApprovedDates(submissions: SubmissionForStreak[]): Set<string> {
     const approvedDates = new Set<string>()
     for (const s of submissions) {
-        if (s.target_date && s.status === 'success') {
+        if (s.target_date && s.status === 'success' && s.type !== 'shield') {
             approvedDates.add(s.target_date)
         }
     }
@@ -55,12 +54,12 @@ function getApprovedDates(submissions: SubmissionForStreak[]): Set<string> {
 }
 
 /**
- * リバイバル日の日付セットを生成
+ * リバイバル日の日付セットを生成（shield は除外）
  */
 function getRevivalDates(submissions: SubmissionForStreak[]): Set<string> {
     const revivalDates = new Set<string>()
     for (const s of submissions) {
-        if (s.target_date && s.status === 'success' && s.is_revival) {
+        if (s.target_date && s.status === 'success' && s.is_revival && s.type !== 'shield') {
             revivalDates.add(s.target_date)
         }
     }
@@ -68,11 +67,24 @@ function getRevivalDates(submissions: SubmissionForStreak[]): Set<string> {
 }
 
 /**
+ * シールド適用日の日付セットを生成
+ */
+function getShieldDates(submissions: SubmissionForStreak[]): Set<string> {
+    const shieldDates = new Set<string>()
+    for (const s of submissions) {
+        if (s.target_date && s.type === 'shield') {
+            shieldDates.add(s.target_date)
+        }
+    }
+    return shieldDates
+}
+
+/**
  * 現在のストリークを計算（オンデマンド）
+ * シールドは手動適用のみ（DB上の type='shield' レコードで判定）
  *
  * @param submissions - 全投稿データ
  * @param isRestDay - 定休日判定関数
- * @param currentShieldStock - 現在のシールド残数
  * @param effectiveFrom - 適用開始日
  * @param getGroupConfigs - 日付ベースのグループ設定取得関数
  * @returns ストリーク計算結果
@@ -80,20 +92,15 @@ function getRevivalDates(submissions: SubmissionForStreak[]): Set<string> {
 export function calculateStreak(
     submissions: SubmissionForStreak[],
     isRestDay: IsRestDayFn,
-    currentShieldStock: number,
     effectiveFrom?: Date,
     getGroupConfigs?: (date: Date) => GroupConfig[]
 ): StreakResult {
     const approvedDates = getApprovedDates(submissions)
     const revivalDates = getRevivalDates(submissions)
+    const shieldDates = getShieldDates(submissions)
 
     const today = startOfDay(new Date())
-    let currentStreak = 0
-    const shieldDays: string[] = []
-    let shieldsRemaining = currentShieldStock
     let consecutiveDays = 0
-    let perfectWeekCount = 0
-    let currentPerfectStreak = 0
 
     // 過去90日間を走査（十分な期間）
     const startDate = subDays(today, 90)
@@ -101,10 +108,8 @@ export function calculateStreak(
 
     // フェーズA: グループ事前計算（正順）
     // weekKey: 月曜始まりの週開始日（yyyy-MM-dd）。土日を同一週に含めるため weekStartsOn: 1 を使用。
-    // キー: "${weekKey}-${group.groupId}"、値: その週のグループ内承認日数
+    // キー: "${weekKey}-${group.groupId}"、値: その週のグループ内承認+シールド日数
     const groupApprovalCountMap = new Map<string, number>()
-    // groupShieldConsumedMap: グループ/週ごとに消費済みシールド枚数を管理する
-    const groupShieldConsumedMap = new Map<string, number>()
 
     for (const day of days) {
         // effectiveFrom カットオフ
@@ -116,7 +121,7 @@ export function calculateStreak(
         const activeGroupConfigs = getGroupConfigs ? getGroupConfigs(day) : []
         for (const group of activeGroupConfigs) {
             if (!group.daysOfWeek.includes(dayOfWeek)) continue
-            if (approvedDates.has(dateStr)) {
+            if (approvedDates.has(dateStr) || shieldDates.has(dateStr)) {
                 const mapKey = `${weekKey}-${group.groupId}`
                 groupApprovalCountMap.set(mapKey, (groupApprovalCountMap.get(mapKey) ?? 0) + 1)
             }
@@ -141,16 +146,14 @@ export function calculateStreak(
         const dayOfWeek = day.getDay()
         const weekKey = format(startOfWeek(day, { weekStartsOn: 1 }), 'yyyy-MM-dd')
 
-        // グループスキップ判定: この日が未承認かつ、グループ義務が実績またはシールドで充足済みなら余剰日としてスキップ
+        // グループスキップ判定: この日が未承認・未シールドかつ、グループ義務が充足済みなら余剰日としてスキップ
         const activeDayGroupConfigs = getGroupConfigs ? getGroupConfigs(day) : []
         let isGroupSkipDay = false
         for (const group of activeDayGroupConfigs) {
             if (!group.daysOfWeek.includes(dayOfWeek)) continue
             const mapKey = `${weekKey}-${group.groupId}`
-            const totalApproved = groupApprovalCountMap.get(mapKey) ?? 0
-            const deficit = group.requiredCount - totalApproved
-            const consumed = groupShieldConsumedMap.get(mapKey) ?? 0
-            if (!approvedDates.has(dateStr) && (totalApproved >= group.requiredCount || consumed >= deficit)) {
+            const totalFulfilled = groupApprovalCountMap.get(mapKey) ?? 0
+            if (!approvedDates.has(dateStr) && !shieldDates.has(dateStr) && totalFulfilled >= group.requiredCount) {
                 isGroupSkipDay = true
                 break
             }
@@ -158,63 +161,157 @@ export function calculateStreak(
         if (isGroupSkipDay) continue
 
         const hasApproval = approvedDates.has(dateStr)
-        const isRevival = revivalDates.has(dateStr)
 
         if (hasApproval) {
             consecutiveDays++
-
-            // ストレート達成のカウント（シールドもリバイバルも不使用）
-            if (!isRevival && !shieldDays.includes(dateStr)) {
-                currentPerfectStreak++
-                if (currentPerfectStreak >= 7 && currentPerfectStreak % 7 === 0) {
-                    perfectWeekCount++
-                }
-            } else {
-                // リバイバルやシールドを使った場合はストレート連続をリセット
-                currentPerfectStreak = 0
-            }
+        } else if (shieldDates.has(dateStr)) {
+            // シールド適用日（手動適用されたレコード）
+            consecutiveDays++
         } else {
-            // 承認がない日のシールド処理（グループ対応）
-            let groupHandled = false
-            for (const group of activeDayGroupConfigs) {
-                if (!group.daysOfWeek.includes(dayOfWeek)) continue
-                const mapKey = `${weekKey}-${group.groupId}`
-                const totalApproved = groupApprovalCountMap.get(mapKey) ?? 0
-                if (totalApproved >= group.requiredCount) break // スキップ済みのはず
-                // deficit > consumed であることが isGroupSkipDay により保証されている
-                if (shieldsRemaining > 0) {
-                    shieldsRemaining--
-                    const consumed = groupShieldConsumedMap.get(mapKey) ?? 0
-                    groupShieldConsumedMap.set(mapKey, consumed + 1)
-                    shieldDays.push(dateStr)
-                    consecutiveDays++
-                    currentPerfectStreak = 0
-                    groupHandled = true
-                }
-                break
-            }
-            if (!groupHandled) {
-                if (shieldsRemaining > 0) {
-                    shieldDays.push(dateStr)
-                    shieldsRemaining--
-                    consecutiveDays++
-                    currentPerfectStreak = 0
-                } else {
-                    break // ストリーク終了
-                }
-            }
+            break // ストリーク終了
         }
     }
 
-    currentStreak = consecutiveDays
-
     return {
-        currentStreak,
-        shieldDays,
+        currentStreak: consecutiveDays,
+        shieldDays: Array.from(shieldDates),
         revivalDays: Array.from(revivalDates),
-        perfectWeekCount,
-        shieldsConsumed: currentShieldStock - shieldsRemaining
     }
+}
+
+/**
+ * ストレート達成回数を週（月〜日）単位で計算
+ *
+ * @param submissions - 全投稿データ（type='shield' を含む）
+ * @param isRestDay - 定休日判定関数
+ * @param getWeeklyTarget - 日付から目標日数を返す関数
+ * @param getGroupConfigs - 日付からグループ設定を返す関数
+ * @param allowRevival - リバイバル日を達成カウントするか
+ * @param allowShield - シールド日を達成カウントするか
+ * @param confirmedBeforeDate - この日付より前の週のみ判定（undefined時は全週）
+ */
+export function calculatePerfectWeeks(
+    submissions: SubmissionForStreak[],
+    isRestDay: IsRestDayFn,
+    getWeeklyTarget: (date: Date) => number,
+    getGroupConfigs: (date: Date) => GroupConfig[],
+    allowRevival: boolean,
+    allowShield: boolean,
+    confirmedBeforeDate?: Date
+): number {
+    const approvedDates = getApprovedDates(submissions)
+    const revivalDates = getRevivalDates(submissions)
+    const shieldDates = getShieldDates(submissions)
+
+    // 全 submissions の target_date から最古日を特定
+    const allTargetDates = submissions
+        .filter(s => s.target_date)
+        .map(s => s.target_date!)
+        .sort()
+
+    if (allTargetDates.length === 0) return 0
+
+    const oldestDate = startOfDay(new Date(allTargetDates[0]))
+    const today = startOfDay(new Date())
+    const allDays = eachDayOfInterval({ start: oldestDate, end: today })
+
+    // 日付を週（月曜始まり）ごとにグループ化
+    const weekMap = new Map<string, Date[]>()
+    for (const day of allDays) {
+        const weekKey = format(startOfWeek(day, { weekStartsOn: 1 }), 'yyyy-MM-dd')
+        if (!weekMap.has(weekKey)) {
+            weekMap.set(weekKey, [])
+        }
+        weekMap.get(weekKey)!.push(day)
+    }
+
+    let perfectWeekCount = 0
+
+    for (const [weekKey, weekDays] of weekMap) {
+        // 確定週チェック: 週の最終日（日曜）が confirmedBeforeDate より前でなければスキップ
+        const weekStart = new Date(weekKey)
+        const weekEnd = addDays(weekStart, 6)
+        if (confirmedBeforeDate && !isBefore(weekEnd, confirmedBeforeDate)) {
+            continue
+        }
+
+        let achieved = 0
+        const processedGroups = new Set<string>()
+
+        for (const day of weekDays) {
+            if (isRestDay(day)) continue
+
+            const dateStr = format(day, 'yyyy-MM-dd')
+            const dayOfWeek = day.getDay()
+            const activeGroupConfigs = getGroupConfigs(day)
+
+            // グループ日の処理
+            let isGroupDay = false
+            for (const group of activeGroupConfigs) {
+                if (!group.daysOfWeek.includes(dayOfWeek)) continue
+                isGroupDay = true
+
+                // 既に処理済みのグループはスキップ
+                const groupWeekKey = `${weekKey}-${group.groupId}`
+                if (processedGroups.has(groupWeekKey)) break
+
+                processedGroups.add(groupWeekKey)
+
+                // グループに属する全曜日について、この週の対応日付を列挙
+                let groupAchieved = 0
+                for (const dow of group.daysOfWeek) {
+                    // 週開始（月曜=1）から dow に対応する日付を計算
+                    const offset = ((dow - 1) + 7) % 7
+                    const groupDate = addDays(weekStart, offset)
+                    const groupDateStr = format(groupDate, 'yyyy-MM-dd')
+
+                    if (isEffectiveDay(groupDateStr, approvedDates, revivalDates, shieldDates, allowRevival, allowShield)) {
+                        groupAchieved++
+                    }
+                }
+                achieved += Math.min(groupAchieved, group.requiredCount)
+                break
+            }
+
+            if (isGroupDay) continue
+
+            // 非グループ日の処理
+            if (isEffectiveDay(dateStr, approvedDates, revivalDates, shieldDates, allowRevival, allowShield)) {
+                achieved++
+            }
+        }
+
+        // 目標日数と比較（週内の任意の日から取得）
+        const target = getWeeklyTarget(weekDays[0])
+        if (achieved >= target) {
+            perfectWeekCount++
+        }
+    }
+
+    return perfectWeekCount
+}
+
+/**
+ * 日付が「有効な達成日」かどうかを判定するヘルパー
+ */
+function isEffectiveDay(
+    dateStr: string,
+    approvedDates: Set<string>,
+    revivalDates: Set<string>,
+    shieldDates: Set<string>,
+    allowRevival: boolean,
+    allowShield: boolean
+): boolean {
+    if (approvedDates.has(dateStr)) {
+        if (revivalDates.has(dateStr)) {
+            return allowRevival
+        }
+        return true
+    }
+    if (shieldDates.has(dateStr)) {
+        return allowShield
+    }
+    return false
 }
 
 /**
