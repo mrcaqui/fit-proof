@@ -39,12 +39,13 @@ interface UseGamificationOptions {
     submissions: Submission[]
     isRestDay: (date: Date) => boolean
     groupConfigs?: GroupConfig[]
+    getGroupConfigsForDate?: (date: Date) => GroupConfig[]
     getTargetDaysPerWeek?: (date: Date) => number
     dataLoading?: boolean
     onRefreshSubmissions?: () => Promise<void> | void
 }
 
-export function useGamification({ targetUserId, submissions, isRestDay, groupConfigs, getTargetDaysPerWeek, dataLoading, onRefreshSubmissions }: UseGamificationOptions) {
+export function useGamification({ targetUserId, submissions, isRestDay, groupConfigs, getGroupConfigsForDate: externalGetGroupConfigsForDate, getTargetDaysPerWeek, dataLoading, onRefreshSubmissions }: UseGamificationOptions) {
     const { user } = useAuth()
     const effectiveUserId = targetUserId || user?.id
 
@@ -187,12 +188,16 @@ export function useGamification({ targetUserId, submissions, isRestDay, groupCon
     // perfectWeekCount 確定後に計算するため、一旦仮の変数で宣言（後で perfectWeekCount から算出）
     const shieldStockFromDB = gamificationProfile.shield_stock ?? 0
 
-    // グループ設定を日付関数として生成
+    // グループ設定を日付関数として生成（外部から effective_to 対応済み関数が渡されればそちらを優先）
     const getGroupConfigsForDate = useCallback((date: Date): GroupConfig[] => {
+        if (externalGetGroupConfigsForDate) return externalGetGroupConfigsForDate(date)
         if (!groupConfigs) return []
         const dateStr = format(date, 'yyyy-MM-dd')
-        return groupConfigs.filter(g => g.effectiveFrom <= dateStr)
-    }, [groupConfigs])
+        return groupConfigs.filter(g =>
+            g.effectiveFrom <= dateStr &&
+            (g.effectiveTo === null || g.effectiveTo > dateStr)
+        )
+    }, [externalGetGroupConfigsForDate, groupConfigs])
 
     // ストリーク計算（オンデマンド）
     const streakResult = useMemo(() => {

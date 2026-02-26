@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { NumberStepper } from '@/components/ui/number-stepper'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
-import { Plus, Trash2, Calendar as CalendarIcon, Clock, Gamepad2, HardDrive, Info, Users } from 'lucide-react'
+import { Plus, Trash2, Calendar as CalendarIcon, Clock, Gamepad2, HardDrive, Info, Users, ChevronDown } from 'lucide-react'
 import {
     Select,
     SelectContent,
@@ -24,7 +24,7 @@ import {
 import { Progress } from '@/components/ui/progress'
 import { getTotalStorageUsedBytes } from '@/lib/r2'
 import { cn } from '@/lib/utils'
-import { format, parseISO } from 'date-fns'
+import { format, parseISO, max as dateMax } from 'date-fns'
 import { Settings } from 'lucide-react'
 
 const DAYS_OF_WEEK = [
@@ -51,7 +51,7 @@ export default function SubmissionSettingsPage() {
     const [clients, setClients] = useState<{ id: string; display_name: string | null }[]>([])
     const {
         rules, loading, refetch,
-        getAllGroupConfigs, getTargetDaysPerWeek
+        getAllActiveGroupConfigs, getTargetDaysPerWeek
     } = useSubmissionRules(selectedClientId)
 
     // Deadline form state
@@ -281,10 +281,17 @@ export default function SubmissionSettingsPage() {
     const handleDeleteItem = async (id: number) => {
         if (!confirm('この項目を削除してよろしいですか？')) return
 
-        const { error } = await supabase
-            .from('submission_items' as any)
-            .delete()
-            .eq('id', id) as any
+        // 論理削除: effective_to = max(today, effective_from)
+        const item = submissionItems.find(i => i.id === id)
+        const today = new Date()
+        today.setHours(0, 0, 0, 0)
+        const effectiveFrom = item ? parseISO(item.effective_from) : today
+        const effectiveTo = dateMax([today, effectiveFrom])
+
+        const { error } = await (supabase
+            .from('submission_items' as any) as any)
+            .update({ effective_to: effectiveTo.toISOString() })
+            .eq('id', id)
 
         if (error) {
             alert('Error deleting item: ' + error.message)
@@ -343,7 +350,7 @@ export default function SubmissionSettingsPage() {
         }
 
         // グループとの重複チェック
-        const groupConfigs = getAllGroupConfigs()
+        const groupConfigs = getAllActiveGroupConfigs()
         const groupDays = new Set(groupConfigs.flatMap(g => g.daysOfWeek))
         const overlap = restDaySelectedDays.filter(d => groupDays.has(d))
         if (overlap.length > 0) {
@@ -387,7 +394,7 @@ export default function SubmissionSettingsPage() {
                 .filter(r => r.rule_type === 'rest_day' && r.scope === 'weekly' && r.day_of_week !== null)
                 .map(r => r.day_of_week!)
         )
-        const groupConfigs = getAllGroupConfigs()
+        const groupConfigs = getAllActiveGroupConfigs()
         const existingGroupDays = new Set(groupConfigs.flatMap(g => g.daysOfWeek))
 
         const overlapRest = pendingGroupDays.filter(d => restDayNums.has(d))
@@ -425,14 +432,23 @@ export default function SubmissionSettingsPage() {
         }
     }
 
-    // グループ削除ハンドラ
+    // グループ削除ハンドラ（論理削除: effective_to を設定）
     const handleDeleteGroupRule = async (groupId: string) => {
         if (!confirm('このグループ設定を削除してよろしいですか？')) return
 
+        // グループ内最古の effective_from を取得
+        const groupRules = rules.filter(r => r.group_id === groupId)
+        const today = new Date()
+        today.setHours(0, 0, 0, 0)
+        const oldestFrom = groupRules.length > 0
+            ? groupRules.map(r => parseISO(r.effective_from)).sort((a, b) => a.getTime() - b.getTime())[0]
+            : today
+        const effectiveTo = dateMax([today, oldestFrom])
+
         const { error } = await (supabase
-            .from('submission_rules' as any)
-            .delete()
-            .eq('group_id', groupId) as any)
+            .from('submission_rules' as any) as any)
+            .update({ effective_to: effectiveTo.toISOString() })
+            .eq('group_id', groupId)
 
         if (error) {
             alert('Error deleting group: ' + error.message)
@@ -441,18 +457,53 @@ export default function SubmissionSettingsPage() {
         }
     }
 
+    // ルール削除ハンドラ（論理削除: effective_to を設定）
     const handleDeleteRule = async (id: number) => {
         if (!confirm('この設定を削除してよろしいですか？')) return
 
-        const { error } = await supabase
-            .from('submission_rules' as any)
-            .delete()
-            .eq('id', id) as any
+        const rule = rules.find(r => r.id === id)
+        const today = new Date()
+        today.setHours(0, 0, 0, 0)
+        const effectiveFrom = rule ? parseISO(rule.effective_from) : today
+        const effectiveTo = dateMax([today, effectiveFrom])
+
+        const { error } = await (supabase
+            .from('submission_rules' as any) as any)
+            .update({ effective_to: effectiveTo.toISOString() })
+            .eq('id', id)
 
         if (error) {
             alert('Error deleting rule: ' + error.message)
         } else {
             refetch()
+        }
+    }
+
+    // 削除済みルールの effective_to を更新するハンドラ
+    const handleUpdateRuleEffectiveTo = async (id: number, newDate: string) => {
+        const rule = rules.find(r => r.id === id)
+        if (rule) {
+            const fromDate = format(parseISO(rule.effective_from), 'yyyy-MM-dd')
+            if (newDate < fromDate) {
+                alert('適用終了日は適用開始日以降にしてください')
+                return
+            }
+        }
+        // グループの場合、同一 group_id の全行を更新
+        if (rule?.group_id) {
+            const { error } = await (supabase
+                .from('submission_rules' as any) as any)
+                .update({ effective_to: new Date(newDate + 'T00:00:00').toISOString() })
+                .eq('group_id', rule.group_id)
+            if (error) alert('更新に失敗しました: ' + error.message)
+            else refetch()
+        } else {
+            const { error } = await (supabase
+                .from('submission_rules' as any) as any)
+                .update({ effective_to: new Date(newDate + 'T00:00:00').toISOString() })
+                .eq('id', id)
+            if (error) alert('更新に失敗しました: ' + error.message)
+            else refetch()
         }
     }
 
@@ -975,38 +1026,74 @@ export default function SubmissionSettingsPage() {
                             </div>
 
                             <div className="space-y-2">
-                                {submissionItems.length === 0 ? (
-                                    <div className="text-sm text-muted-foreground italic p-4 border border-dashed rounded bg-muted/20 text-center">
-                                        設定された項目はありません（デフォルト設定）
-                                    </div>
-                                ) : (
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                                        {submissionItems.map(item => (
-                                            <div key={item.id} className="flex flex-col gap-2 p-3 rounded-lg border bg-card shadow-sm">
-                                                <span className="font-medium truncate">{item.name}</span>
-                                                <div className="flex items-center justify-between gap-2">
-                                                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                                                        <span>適用開始:</span>
-                                                        <Input
-                                                            type="date"
-                                                            className="h-7 w-36 text-xs"
-                                                            value={format(parseISO(item.effective_from), 'yyyy-MM-dd')}
-                                                            onChange={(e) => handleUpdateItemEffectiveFrom(item.id, e.target.value)}
-                                                        />
-                                                    </div>
-                                                    <Button
-                                                        variant="ghost"
-                                                        size="icon"
-                                                        className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                                                        onClick={() => handleDeleteItem(item.id)}
-                                                    >
-                                                        <Trash2 className="w-4 h-4" />
-                                                    </Button>
+                                {(() => {
+                                    const activeItems = submissionItems.filter(i => i.effective_to === null)
+                                    const deletedItems = submissionItems.filter(i => i.effective_to !== null)
+                                    return (
+                                        <>
+                                            {activeItems.length === 0 ? (
+                                                <div className="text-sm text-muted-foreground italic p-4 border border-dashed rounded bg-muted/20 text-center">
+                                                    設定された項目はありません（デフォルト設定）
                                                 </div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
+                                            ) : (
+                                                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                                                    {activeItems.map(item => (
+                                                        <div key={item.id} className="flex flex-col gap-2 p-3 rounded-lg border bg-card shadow-sm">
+                                                            <span className="font-medium truncate">{item.name}</span>
+                                                            <div className="flex items-center justify-between gap-2">
+                                                                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                                                                    <span>適用開始:</span>
+                                                                    <Input
+                                                                        type="date"
+                                                                        className="h-7 w-36 text-xs"
+                                                                        value={format(parseISO(item.effective_from), 'yyyy-MM-dd')}
+                                                                        onChange={(e) => handleUpdateItemEffectiveFrom(item.id, e.target.value)}
+                                                                    />
+                                                                </div>
+                                                                <Button
+                                                                    variant="ghost"
+                                                                    size="icon"
+                                                                    className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                                                                    onClick={() => handleDeleteItem(item.id)}
+                                                                >
+                                                                    <Trash2 className="w-4 h-4" />
+                                                                </Button>
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+                                            {deletedItems.length > 0 && (
+                                                <DeletedAccordion
+                                                    label={`削除済み (${deletedItems.length})`}
+                                                    items={deletedItems.map(item => ({
+                                                        id: item.id,
+                                                        label: item.name,
+                                                        effectiveFrom: format(parseISO(item.effective_from), 'yyyy-MM-dd'),
+                                                        effectiveTo: item.effective_to ? format(parseISO(item.effective_to), 'yyyy-MM-dd') : '',
+                                                    }))}
+                                                    onUpdateEffectiveTo={async (id, newDate) => {
+                                                        const item = submissionItems.find(i => i.id === id)
+                                                        if (item) {
+                                                            const fromDate = format(parseISO(item.effective_from), 'yyyy-MM-dd')
+                                                            if (newDate < fromDate) {
+                                                                alert('適用終了日は適用開始日以降にしてください')
+                                                                return
+                                                            }
+                                                        }
+                                                        const { error } = await (supabase
+                                                            .from('submission_items' as any) as any)
+                                                            .update({ effective_to: new Date(newDate + 'T00:00:00').toISOString() })
+                                                            .eq('id', id)
+                                                        if (error) alert('更新に失敗しました: ' + error.message)
+                                                        else refetchItems()
+                                                    }}
+                                                    pastSubmissionDays={pastSubmissionDays}
+                                                />
+                                            )}
+                                        </>
+                                    )
+                                })()}
                             </div>
                         </CardContent>
                     </Card>
@@ -1139,6 +1226,8 @@ export default function SubmissionSettingsPage() {
                         onUpdateEffectiveFrom={handleUpdateRuleEffectiveFrom}
                         onUpdateGroupEffectiveFrom={handleUpdateGroupEffectiveFrom}
                         onDeleteGroup={handleDeleteGroupRule}
+                        onUpdateRuleEffectiveTo={handleUpdateRuleEffectiveTo}
+                        pastSubmissionDays={pastSubmissionDays}
                     />
                 </div>
 
@@ -1235,6 +1324,8 @@ export default function SubmissionSettingsPage() {
                         onUpdateEffectiveFrom={handleUpdateRuleEffectiveFrom}
                         onUpdateGroupEffectiveFrom={handleUpdateGroupEffectiveFrom}
                         onDeleteGroup={handleDeleteGroupRule}
+                        onUpdateRuleEffectiveTo={handleUpdateRuleEffectiveTo}
+                        pastSubmissionDays={pastSubmissionDays}
                     />
                 </div>
             </div>
@@ -1242,23 +1333,29 @@ export default function SubmissionSettingsPage() {
     )
 }
 
-function RuleList({ rules, onDelete, onUpdateEffectiveFrom, onUpdateGroupEffectiveFrom, onDeleteGroup }: {
+function RuleList({ rules, onDelete, onUpdateEffectiveFrom, onUpdateGroupEffectiveFrom, onDeleteGroup, onUpdateRuleEffectiveTo, pastSubmissionDays }: {
     rules: any[],
     onDelete: (id: number) => void,
     onUpdateEffectiveFrom: (id: number, newDate: string) => void,
     onUpdateGroupEffectiveFrom: (groupId: string, newDate: string) => void,
-    onDeleteGroup: (groupId: string) => void
+    onDeleteGroup: (groupId: string) => void,
+    onUpdateRuleEffectiveTo?: (id: number, newDate: string) => void,
+    pastSubmissionDays?: number
 }) {
-    if (rules.length === 0) {
+    // アクティブルール（effective_to IS NULL）と削除済みルールを分離
+    const activeRules = rules.filter(r => r.effective_to === null)
+    const deletedRules = rules.filter(r => r.effective_to !== null)
+
+    if (activeRules.length === 0 && deletedRules.length === 0) {
         return <div className="text-center py-8 bg-muted/10 rounded-lg text-muted-foreground text-sm border-dashed border-2">
             設定されたルールはありません
         </div>
     }
 
-    // グループルールをまとめて表示するために group_id でグルーピング
+    // グループルールをまとめて表示するために group_id でグルーピング（アクティブのみ）
     const groupMap = new Map<string, any[]>()
     const nonGroupRules: any[] = []
-    for (const rule of rules) {
+    for (const rule of activeRules) {
         if (rule.group_id) {
             if (!groupMap.has(rule.group_id)) groupMap.set(rule.group_id, [])
             groupMap.get(rule.group_id)!.push(rule)
@@ -1285,30 +1382,132 @@ function RuleList({ rules, onDelete, onUpdateEffectiveFrom, onUpdateGroupEffecti
         return ''
     }
 
-    return (
-        <div className="space-y-2 max-h-[400px] overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-muted">
-            {/* グループルール */}
-            {Array.from(groupMap.entries()).map(([groupId, groupRules]) => {
-                const daysLabels = groupRules
-                    .filter(r => r.day_of_week !== null)
-                    .map(r => DAYS_OF_WEEK.find(d => d.value === r.day_of_week)?.label)
-                    .join('・')
-                const requiredCount = groupRules[0].group_required_count ?? 1
-                const effectiveFrom = groupRules[0].effective_from
+    // 削除済みルールのラベル生成
+    const getDeletedRuleLabel = (rule: any): string => {
+        if (rule.rule_type === 'rest_day') {
+            if (rule.scope === 'weekly' && rule.day_of_week !== null) {
+                return `休息日（${DAYS_OF_WEEK.find(d => d.value === rule.day_of_week)?.label}曜）`
+            }
+            return '休息日'
+        }
+        if (rule.rule_type === 'deadline') {
+            const scopeLabel = rule.scope === 'monthly' ? '月間' :
+                rule.scope === 'weekly' ? `${DAYS_OF_WEEK.find(d => d.value === rule.day_of_week)?.label}曜` :
+                    rule.specific_date ? format(parseISO(rule.specific_date), 'MM/dd') : ''
+            return `${scopeLabel} ${rule.value || ''}`
+        }
+        return ''
+    }
 
-                return (
-                    <div key={groupId} className="group flex flex-col gap-2 p-3 rounded-lg border bg-card hover:border-primary/30 transition-colors">
+    // 削除済みグループのグルーピング
+    const deletedGroupMap = new Map<string, any[]>()
+    const deletedNonGroupRules: any[] = []
+    for (const rule of deletedRules) {
+        if (rule.group_id) {
+            if (!deletedGroupMap.has(rule.group_id)) deletedGroupMap.set(rule.group_id, [])
+            deletedGroupMap.get(rule.group_id)!.push(rule)
+        } else {
+            deletedNonGroupRules.push(rule)
+        }
+    }
+
+    // 削除済みアコーディオン用アイテムの生成
+    const deletedItems: { id: number; label: string; effectiveFrom: string; effectiveTo: string }[] = []
+    for (const [, groupRules] of deletedGroupMap) {
+        const daysLabels = groupRules
+            .filter((r: any) => r.day_of_week !== null)
+            .map((r: any) => DAYS_OF_WEEK.find(d => d.value === r.day_of_week)?.label)
+            .join('・')
+        const requiredCount = groupRules[0].group_required_count ?? 1
+        deletedItems.push({
+            id: groupRules[0].id,
+            label: `グループ（${daysLabels}）うち${requiredCount}日`,
+            effectiveFrom: format(parseISO(groupRules[0].effective_from), 'yyyy-MM-dd'),
+            effectiveTo: groupRules[0].effective_to ? format(parseISO(groupRules[0].effective_to), 'yyyy-MM-dd') : '',
+        })
+    }
+    for (const rule of deletedNonGroupRules) {
+        deletedItems.push({
+            id: rule.id,
+            label: getDeletedRuleLabel(rule),
+            effectiveFrom: format(parseISO(rule.effective_from), 'yyyy-MM-dd'),
+            effectiveTo: rule.effective_to ? format(parseISO(rule.effective_to), 'yyyy-MM-dd') : '',
+        })
+    }
+
+    return (
+        <div className="space-y-2">
+            <div className="space-y-2 max-h-[400px] overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-muted">
+                {/* グループルール */}
+                {Array.from(groupMap.entries()).map(([groupId, groupRules]) => {
+                    const daysLabels = groupRules
+                        .filter((r: any) => r.day_of_week !== null)
+                        .map((r: any) => DAYS_OF_WEEK.find(d => d.value === r.day_of_week)?.label)
+                        .join('・')
+                    const requiredCount = groupRules[0].group_required_count ?? 1
+                    const effectiveFrom = groupRules[0].effective_from
+
+                    return (
+                        <div key={groupId} className="group flex flex-col gap-2 p-3 rounded-lg border bg-card hover:border-primary/30 transition-colors">
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-2 h-2 rounded-full bg-emerald-500" />
+                                    <div>
+                                        <div className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider">
+                                            Group
+                                        </div>
+                                        <div className="text-sm font-medium">
+                                            {daysLabels}
+                                            <span className="mx-2 text-muted-foreground opacity-50">→</span>
+                                            <span className="font-bold">うち{requiredCount}日</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-8 w-8 text-muted-foreground hover:text-destructive opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity"
+                                    onClick={() => onDeleteGroup(groupId)}
+                                >
+                                    <Trash2 className="w-4 h-4" />
+                                </Button>
+                            </div>
+                            <div className="flex items-center gap-1.5 text-xs text-muted-foreground pl-5">
+                                <span>適用開始:</span>
+                                <Input
+                                    type="date"
+                                    className="h-7 w-36 text-xs"
+                                    value={format(parseISO(effectiveFrom), 'yyyy-MM-dd')}
+                                    onChange={(e) => onUpdateGroupEffectiveFrom(groupId, e.target.value)}
+                                />
+                            </div>
+                        </div>
+                    )
+                })}
+
+                {/* 非グループルール */}
+                {sortedNonGroupRules.map(rule => (
+                    <div key={rule.id} className="group flex flex-col gap-2 p-3 rounded-lg border bg-card hover:border-primary/30 transition-colors">
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-3">
-                                <div className="w-2 h-2 rounded-full bg-emerald-500" />
+                                <div className={cn(
+                                    "w-2 h-2 rounded-full",
+                                    rule.scope === 'daily' ? "bg-blue-500" :
+                                        rule.scope === 'weekly' ? "bg-purple-500" : "bg-gray-400"
+                                )} />
                                 <div>
                                     <div className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider">
-                                        Group
+                                        {rule.scope === 'monthly' ? "Monthly" :
+                                            rule.scope === 'weekly' ? "Weekly" : "Daily"}
                                     </div>
                                     <div className="text-sm font-medium">
-                                        {daysLabels}
+                                        {rule.scope === 'monthly' && "全体設定"}
+                                        {rule.scope === 'weekly' && `${DAYS_OF_WEEK.find(d => d.value === rule.day_of_week)?.label}曜`}
+                                        {rule.scope === 'daily' && rule.specific_date && format(parseISO(rule.specific_date), 'MM/dd')}
                                         <span className="mx-2 text-muted-foreground opacity-50">→</span>
-                                        <span className="font-bold">うち{requiredCount}日</span>
+                                        <span className="font-bold">
+                                            {ruleTypeLabel(rule)}
+                                        </span>
                                     </div>
                                 </div>
                             </div>
@@ -1316,7 +1515,7 @@ function RuleList({ rules, onDelete, onUpdateEffectiveFrom, onUpdateGroupEffecti
                                 variant="ghost"
                                 size="icon"
                                 className="h-8 w-8 text-muted-foreground hover:text-destructive opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity"
-                                onClick={() => onDeleteGroup(groupId)}
+                                onClick={() => onDelete(rule.id)}
                             >
                                 <Trash2 className="w-4 h-4" />
                             </Button>
@@ -1326,60 +1525,91 @@ function RuleList({ rules, onDelete, onUpdateEffectiveFrom, onUpdateGroupEffecti
                             <Input
                                 type="date"
                                 className="h-7 w-36 text-xs"
-                                value={format(parseISO(effectiveFrom), 'yyyy-MM-dd')}
-                                onChange={(e) => onUpdateGroupEffectiveFrom(groupId, e.target.value)}
+                                value={format(parseISO(rule.effective_from), 'yyyy-MM-dd')}
+                                onChange={(e) => onUpdateEffectiveFrom(rule.id, e.target.value)}
                             />
                         </div>
                     </div>
-                )
-            })}
+                ))}
+            </div>
 
-            {/* 非グループルール */}
-            {sortedNonGroupRules.map(rule => (
-                <div key={rule.id} className="group flex flex-col gap-2 p-3 rounded-lg border bg-card hover:border-primary/30 transition-colors">
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                            <div className={cn(
-                                "w-2 h-2 rounded-full",
-                                rule.scope === 'daily' ? "bg-blue-500" :
-                                    rule.scope === 'weekly' ? "bg-purple-500" : "bg-gray-400"
-                            )} />
-                            <div>
-                                <div className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider">
-                                    {rule.scope === 'monthly' ? "Monthly" :
-                                        rule.scope === 'weekly' ? "Weekly" : "Daily"}
-                                </div>
-                                <div className="text-sm font-medium">
-                                    {rule.scope === 'monthly' && "全体設定"}
-                                    {rule.scope === 'weekly' && `${DAYS_OF_WEEK.find(d => d.value === rule.day_of_week)?.label}曜`}
-                                    {rule.scope === 'daily' && rule.specific_date && format(parseISO(rule.specific_date), 'MM/dd')}
-                                    <span className="mx-2 text-muted-foreground opacity-50">→</span>
-                                    <span className="font-bold">
-                                        {ruleTypeLabel(rule)}
-                                    </span>
-                                </div>
-                            </div>
-                        </div>
-                        <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 text-muted-foreground hover:text-destructive opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity"
-                            onClick={() => onDelete(rule.id)}
-                        >
-                            <Trash2 className="w-4 h-4" />
-                        </Button>
-                    </div>
-                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground pl-5">
-                        <span>適用開始:</span>
-                        <Input
-                            type="date"
-                            className="h-7 w-36 text-xs"
-                            value={format(parseISO(rule.effective_from), 'yyyy-MM-dd')}
-                            onChange={(e) => onUpdateEffectiveFrom(rule.id, e.target.value)}
-                        />
-                    </div>
+            {/* 削除済みルールのアコーディオン */}
+            {deletedItems.length > 0 && onUpdateRuleEffectiveTo && (
+                <DeletedAccordion
+                    label={`削除済み (${deletedItems.length})`}
+                    items={deletedItems}
+                    onUpdateEffectiveTo={(id, newDate) => onUpdateRuleEffectiveTo(id, newDate)}
+                    pastSubmissionDays={pastSubmissionDays}
+                />
+            )}
+        </div>
+    )
+}
+
+/** 削除済みアイテム/ルールを折りたたみ表示するアコーディオン */
+function DeletedAccordion({ label, items, onUpdateEffectiveTo, pastSubmissionDays = 0 }: {
+    label: string
+    items: { id: number; label: string; effectiveFrom: string; effectiveTo: string }[]
+    onUpdateEffectiveTo: (id: number, newDate: string) => void
+    pastSubmissionDays?: number
+}) {
+    const [open, setOpen] = useState(false)
+
+    // effective_to の下限: today - pastSubmissionDays
+    const minEffectiveTo = (() => {
+        if (pastSubmissionDays === 0) return format(new Date(), 'yyyy-MM-dd')
+        if (pastSubmissionDays >= 9999) return '' // 無制限
+        const d = new Date()
+        d.setDate(d.getDate() - pastSubmissionDays)
+        return format(d, 'yyyy-MM-dd')
+    })()
+
+    return (
+        <div className="border rounded-lg bg-muted/5">
+            <button
+                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground hover:bg-muted/20 transition-colors rounded-lg"
+                onClick={() => setOpen(!open)}
+            >
+                <ChevronDown className={cn("w-4 h-4 transition-transform", open && "rotate-180")} />
+                <span>{label}</span>
+            </button>
+            {open && (
+                <div className="px-3 pb-3">
+                    <table className="w-full text-xs">
+                        <thead>
+                            <tr className="text-muted-foreground border-b">
+                                <th className="text-left py-1 font-medium">名前</th>
+                                <th className="text-left py-1 font-medium">適用開始</th>
+                                <th className="text-left py-1 font-medium">適用終了</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {items.map(item => (
+                                <tr key={item.id} className="border-b last:border-0">
+                                    <td className="py-1.5 pr-2 truncate max-w-[120px]">{item.label}</td>
+                                    <td className="py-1.5 pr-2 whitespace-nowrap">{item.effectiveFrom}</td>
+                                    <td className="py-1.5">
+                                        <Input
+                                            type="date"
+                                            className="h-6 w-32 text-xs"
+                                            value={item.effectiveTo}
+                                            min={minEffectiveTo || item.effectiveFrom}
+                                            onChange={(e) => {
+                                                const newDate = e.target.value
+                                                if (newDate < item.effectiveFrom) {
+                                                    alert('適用終了日は適用開始日以降にしてください')
+                                                    return
+                                                }
+                                                onUpdateEffectiveTo(item.id, newDate)
+                                            }}
+                                        />
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
                 </div>
-            ))}
+            )}
         </div>
     )
 }

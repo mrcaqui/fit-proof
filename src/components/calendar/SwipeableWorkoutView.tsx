@@ -96,13 +96,17 @@ export function SwipeableWorkoutView({
     })
   }, [workouts])
 
-  // 効果的な提出項目を取得
+  // 効果的な提出項目を取得（[effective_from, effective_to) セマンティクス）
   const getEffectiveItems = useCallback((date: Date) => {
-    const endOfDate = new Date(date)
-    endOfDate.setHours(23, 59, 59, 999)
+    const dateStr = format(date, 'yyyy-MM-dd')
     return submissionItems.filter(item => {
-      const effective = parseISO(item.effective_from)
-      return effective <= endOfDate
+      const effectiveFrom = format(parseISO(item.effective_from), 'yyyy-MM-dd')
+      if (effectiveFrom > dateStr) return false
+      if (item.effective_to) {
+        const effectiveTo = format(parseISO(item.effective_to), 'yyyy-MM-dd')
+        if (effectiveTo <= dateStr) return false
+      }
+      return true
     })
   }, [submissionItems])
 

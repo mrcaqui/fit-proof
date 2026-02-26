@@ -79,6 +79,7 @@ export default function CalendarPage() {
     loading: rulesLoading,
     isRestDayForDate,
     getAllGroupConfigs,
+    getGroupConfigsForDate,
     getTargetDaysPerWeek,
   } = useSubmissionRules(targetUserId);
   const { items: submissionItems, getEffectiveSubmissionItems } =
@@ -126,6 +127,7 @@ export default function CalendarPage() {
     submissions: workouts,
     isRestDay,
     groupConfigs,
+    getGroupConfigsForDate,
     getTargetDaysPerWeek,
     dataLoading: loading || rulesLoading,
     onRefreshSubmissions: () => refetch(true),

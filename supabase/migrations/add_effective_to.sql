@@ -1,0 +1,2 @@
+ALTER TABLE submission_rules ADD COLUMN effective_to TIMESTAMPTZ DEFAULT NULL;
+ALTER TABLE submission_items ADD COLUMN effective_to TIMESTAMPTZ DEFAULT NULL;

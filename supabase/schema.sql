@@ -75,7 +75,8 @@ create table submission_items (
   user_id uuid references profiles(id) on delete cascade not null,
   name text not null,
   created_at timestamp with time zone default timezone('utc'::text, now()) not null,
-  effective_from timestamp with time zone default timezone('utc'::text, now()) not null
+  effective_from timestamp with time zone default timezone('utc'::text, now()) not null,
+  effective_to timestamp with time zone default null
 );
 
 alter table submission_items enable row level security;
@@ -167,7 +168,8 @@ create table submission_rules (
   created_at timestamp with time zone default timezone('utc'::text, now()) not null,
   effective_from timestamp with time zone default timezone('utc'::text, now()) not null,
   group_id uuid default null,
-  group_required_count integer default null
+  group_required_count integer default null,
+  effective_to timestamp with time zone default null
 );
 
 alter table submission_rules enable row level security;

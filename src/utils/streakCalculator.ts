@@ -38,6 +38,7 @@ export interface GroupConfig {
     daysOfWeek: number[]   // 0=日〜6=土
     requiredCount: number  // このグループ内で必要な投稿日数
     effectiveFrom: string  // 適用開始日（常に 'yyyy-MM-dd' 形式）
+    effectiveTo: string | null  // 適用終了日（null = 現在有効）。[effectiveFrom, effectiveTo) で判定
 }
 
 /**
@@ -264,6 +265,10 @@ export function calculatePerfectWeeks(
                     const offset = ((dow - 1) + 7) % 7
                     const groupDate = addDays(weekStart, offset)
                     const groupDateStr = format(groupDate, 'yyyy-MM-dd')
+
+                    // effectiveFrom / effectiveTo の有効期間チェック（日単位）
+                    if (groupDateStr < group.effectiveFrom) continue
+                    if (group.effectiveTo && groupDateStr >= group.effectiveTo) continue
 
                     if (isEffectiveDay(groupDateStr, approvedDates, revivalDates, shieldDates, allowRevival, allowShield)) {
                         groupAchieved++

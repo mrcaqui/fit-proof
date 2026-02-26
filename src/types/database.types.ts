@@ -67,6 +67,7 @@ export interface Database {
                     name: string
                     created_at: string
                     effective_from: string
+                    effective_to: string | null
                 }
                 Insert: {
                     id?: number
@@ -74,6 +75,7 @@ export interface Database {
                     name: string
                     created_at?: string
                     effective_from?: string
+                    effective_to?: string | null
                 }
                 Update: {
                     id?: number
@@ -81,6 +83,7 @@ export interface Database {
                     name?: string
                     created_at?: string
                     effective_from?: string
+                    effective_to?: string | null
                 }
                 Relationships: []
             }
@@ -166,6 +169,7 @@ export interface Database {
                     effective_from: string
                     group_id: string | null
                     group_required_count: number | null
+                    effective_to: string | null
                 }
                 Insert: {
                     id?: number
@@ -179,6 +183,7 @@ export interface Database {
                     effective_from?: string
                     group_id?: string | null
                     group_required_count?: number | null
+                    effective_to?: string | null
                 }
                 Update: {
                     id?: number
@@ -192,6 +197,7 @@ export interface Database {
                     effective_from?: string
                     group_id?: string | null
                     group_required_count?: number | null
+                    effective_to?: string | null
                 }
                 Relationships: []
             }

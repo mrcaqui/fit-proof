@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import { Database } from '@/types/database.types'
-import { parseISO } from 'date-fns'
+import { parseISO, format } from 'date-fns'
 
 type SubmissionItem = Database['public']['Tables']['submission_items']['Row']
 
@@ -61,13 +61,17 @@ export function useSubmissionItems(userId?: string) {
         }
     }, [fetchItems, userId])
 
-    // 指定日時点で有効なアイテムを取得
+    // 指定日時点で有効なアイテムを取得（[effective_from, effective_to) セマンティクス）
     const getEffectiveSubmissionItems = useCallback((date: Date): SubmissionItem[] => {
-        const endOfTargetDate = new Date(date)
-        endOfTargetDate.setHours(23, 59, 59, 999)
+        const dateStr = format(date, 'yyyy-MM-dd')
         return items.filter(item => {
-            const effective = parseISO(item.effective_from)
-            return effective <= endOfTargetDate
+            const effectiveFrom = format(parseISO(item.effective_from), 'yyyy-MM-dd')
+            if (effectiveFrom > dateStr) return false
+            if (item.effective_to) {
+                const effectiveTo = format(parseISO(item.effective_to), 'yyyy-MM-dd')
+                if (effectiveTo <= dateStr) return false
+            }
+            return true
         })
     }, [items])
 

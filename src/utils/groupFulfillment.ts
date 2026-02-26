@@ -31,9 +31,11 @@ export function getGroupInfoForDate(
   const dayOfWeek = date.getDay()
   const dateStr = format(date, 'yyyy-MM-dd')
 
-  // この曜日を含み、effectiveFrom が対象日以前のグループを検索
+  // この曜日を含み、日付に有効なグループを検索（[effectiveFrom, effectiveTo) セマンティクス）
   const group = groupConfigs.find(
-    g => g.daysOfWeek.includes(dayOfWeek) && g.effectiveFrom <= dateStr
+    g => g.daysOfWeek.includes(dayOfWeek) &&
+         g.effectiveFrom <= dateStr &&
+         (g.effectiveTo === null || g.effectiveTo > dateStr)
   )
 
   if (!group) return null
@@ -59,6 +61,8 @@ export function getGroupInfoForDate(
 
     // effectiveFrom 以前の日は除外
     if (dayDateStr < group.effectiveFrom) continue
+    // effectiveTo 以降の日は除外（[effectiveFrom, effectiveTo) セマンティクス）
+    if (group.effectiveTo && dayDateStr >= group.effectiveTo) continue
 
     if (postedDateSet.has(dayDateStr)) {
       postedDaysCount++
