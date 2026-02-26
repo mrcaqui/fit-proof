@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { NumberStepper } from '@/components/ui/number-stepper'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
-import { Plus, Trash2, Calendar as CalendarIcon, Clock, Gamepad2, HardDrive, Info, Users, ChevronDown } from 'lucide-react'
+import { Plus, Trash2, Calendar as CalendarIcon, Clock, Gamepad2, HardDrive, Info, Users, ChevronDown, RotateCcw } from 'lucide-react'
 import {
     Select,
     SelectContent,
@@ -300,6 +300,27 @@ export default function SubmissionSettingsPage() {
         }
     }
 
+    const handleReactivateItem = async (id: number) => {
+        const item = submissionItems.find(i => i.id === id)
+        if (!item) return
+
+        // 同名のアクティブアイテムが存在するかチェック
+        const conflict = submissionItems.find(
+            i => i.id !== id && i.name === item.name && i.effective_to === null
+        )
+        if (conflict) {
+            alert(`同じ名前のアクティブな項目が存在します: ${item.name}`)
+            return
+        }
+
+        const { error } = await (supabase
+            .from('submission_items' as any) as any)
+            .update({ effective_to: null })
+            .eq('id', id)
+        if (error) alert('有効化に失敗しました: ' + error.message)
+        else refetchItems()
+    }
+
     // Deadline handler
     const handleAddDeadlineRule = async () => {
         if (!selectedClientId) return
@@ -503,6 +524,95 @@ export default function SubmissionSettingsPage() {
                 .update({ effective_to: new Date(newDate + 'T00:00:00').toISOString() })
                 .eq('id', id)
             if (error) alert('更新に失敗しました: ' + error.message)
+            else refetch()
+        }
+    }
+
+    const handleReactivateRule = async (id: number) => {
+        const rule = rules.find(r => r.id === id)
+        if (!rule) return
+
+        if (rule.rule_type === 'rest_day') {
+            // 休息日: アクティブグループの曜日との重複チェック
+            const groupConfigs = getAllActiveGroupConfigs()
+            const groupDays = new Set(groupConfigs.flatMap(g => g.daysOfWeek))
+            if (rule.day_of_week !== null && groupDays.has(rule.day_of_week)) {
+                const dayLabel = DAYS_OF_WEEK.find(d => d.value === rule.day_of_week)?.label
+                alert(`${dayLabel}曜はグループ設定と重複しているため有効化できません`)
+                return
+            }
+            // 同じ曜日のアクティブ休息日との重複チェック
+            const activeRestConflict = rules.find(
+                r => r.id !== id && r.rule_type === 'rest_day' && r.day_of_week === rule.day_of_week && r.effective_to === null
+            )
+            if (activeRestConflict) {
+                const dayLabel = DAYS_OF_WEEK.find(d => d.value === rule.day_of_week)?.label
+                alert(`${dayLabel}曜はすでにアクティブな休息日として設定されています`)
+                return
+            }
+
+            const { error } = await (supabase
+                .from('submission_rules' as any) as any)
+                .update({ effective_to: null })
+                .eq('id', id)
+            if (error) alert('有効化に失敗しました: ' + error.message)
+            else refetch()
+        } else if (rule.rule_type === 'group' && rule.group_id) {
+            // グループ: group_id から全行を取得し、曜日の重複チェック
+            const groupRules = rules.filter(r => r.group_id === rule.group_id)
+            const groupDays = groupRules
+                .filter(r => r.day_of_week !== null)
+                .map(r => r.day_of_week as number)
+
+            // アクティブ休息日との重複チェック
+            const activeRestDays = new Set(
+                rules
+                    .filter(r => r.rule_type === 'rest_day' && r.effective_to === null && r.day_of_week !== null)
+                    .map(r => r.day_of_week!)
+            )
+            const overlapRest = groupDays.filter(d => activeRestDays.has(d))
+            if (overlapRest.length > 0) {
+                const labels = overlapRest.map(d => DAYS_OF_WEEK.find(dw => dw.value === d)?.label).join('、')
+                alert(`${labels}曜はすでに休息日として設定されているため有効化できません`)
+                return
+            }
+
+            // アクティブ他グループとの重複チェック
+            const otherGroupConfigs = getAllActiveGroupConfigs()
+            const otherGroupDays = new Set(otherGroupConfigs.flatMap(g => g.daysOfWeek))
+            const overlapGroup = groupDays.filter(d => otherGroupDays.has(d))
+            if (overlapGroup.length > 0) {
+                const labels = overlapGroup.map(d => DAYS_OF_WEEK.find(dw => dw.value === d)?.label).join('、')
+                alert(`${labels}曜はすでに別のグループに設定されているため有効化できません`)
+                return
+            }
+
+            const { error } = await (supabase
+                .from('submission_rules' as any) as any)
+                .update({ effective_to: null })
+                .eq('group_id', rule.group_id)
+            if (error) alert('有効化に失敗しました: ' + error.message)
+            else refetch()
+        } else if (rule.rule_type === 'deadline') {
+            // 期限: 同じ scope + day_of_week + specific_date のアクティブ期限チェック
+            const conflict = rules.find(
+                r => r.id !== id &&
+                    r.rule_type === 'deadline' &&
+                    r.effective_to === null &&
+                    r.scope === rule.scope &&
+                    r.day_of_week === rule.day_of_week &&
+                    r.specific_date === rule.specific_date
+            )
+            if (conflict) {
+                alert('同じ条件のアクティブな期限が存在するため有効化できません')
+                return
+            }
+
+            const { error } = await (supabase
+                .from('submission_rules' as any) as any)
+                .update({ effective_to: null })
+                .eq('id', id)
+            if (error) alert('有効化に失敗しました: ' + error.message)
             else refetch()
         }
     }
@@ -1088,6 +1198,7 @@ export default function SubmissionSettingsPage() {
                                                         if (error) alert('更新に失敗しました: ' + error.message)
                                                         else refetchItems()
                                                     }}
+                                                    onReactivate={handleReactivateItem}
                                                     pastSubmissionDays={pastSubmissionDays}
                                                 />
                                             )}
@@ -1227,6 +1338,7 @@ export default function SubmissionSettingsPage() {
                         onUpdateGroupEffectiveFrom={handleUpdateGroupEffectiveFrom}
                         onDeleteGroup={handleDeleteGroupRule}
                         onUpdateRuleEffectiveTo={handleUpdateRuleEffectiveTo}
+                        onReactivateRule={handleReactivateRule}
                         pastSubmissionDays={pastSubmissionDays}
                     />
                 </div>
@@ -1325,6 +1437,7 @@ export default function SubmissionSettingsPage() {
                         onUpdateGroupEffectiveFrom={handleUpdateGroupEffectiveFrom}
                         onDeleteGroup={handleDeleteGroupRule}
                         onUpdateRuleEffectiveTo={handleUpdateRuleEffectiveTo}
+                        onReactivateRule={handleReactivateRule}
                         pastSubmissionDays={pastSubmissionDays}
                     />
                 </div>
@@ -1333,13 +1446,14 @@ export default function SubmissionSettingsPage() {
     )
 }
 
-function RuleList({ rules, onDelete, onUpdateEffectiveFrom, onUpdateGroupEffectiveFrom, onDeleteGroup, onUpdateRuleEffectiveTo, pastSubmissionDays }: {
+function RuleList({ rules, onDelete, onUpdateEffectiveFrom, onUpdateGroupEffectiveFrom, onDeleteGroup, onUpdateRuleEffectiveTo, onReactivateRule, pastSubmissionDays }: {
     rules: any[],
     onDelete: (id: number) => void,
     onUpdateEffectiveFrom: (id: number, newDate: string) => void,
     onUpdateGroupEffectiveFrom: (groupId: string, newDate: string) => void,
     onDeleteGroup: (groupId: string) => void,
     onUpdateRuleEffectiveTo?: (id: number, newDate: string) => void,
+    onReactivateRule?: (id: number) => void,
     pastSubmissionDays?: number
 }) {
     // アクティブルール（effective_to IS NULL）と削除済みルールを分離
@@ -1539,6 +1653,7 @@ function RuleList({ rules, onDelete, onUpdateEffectiveFrom, onUpdateGroupEffecti
                     label={`削除済み (${deletedItems.length})`}
                     items={deletedItems}
                     onUpdateEffectiveTo={(id, newDate) => onUpdateRuleEffectiveTo(id, newDate)}
+                    onReactivate={onReactivateRule}
                     pastSubmissionDays={pastSubmissionDays}
                 />
             )}
@@ -1547,13 +1662,16 @@ function RuleList({ rules, onDelete, onUpdateEffectiveFrom, onUpdateGroupEffecti
 }
 
 /** 削除済みアイテム/ルールを折りたたみ表示するアコーディオン */
-function DeletedAccordion({ label, items, onUpdateEffectiveTo, pastSubmissionDays = 0 }: {
+function DeletedAccordion({ label, items, onUpdateEffectiveTo, onReactivate, pastSubmissionDays = 0 }: {
     label: string
     items: { id: number; label: string; effectiveFrom: string; effectiveTo: string }[]
     onUpdateEffectiveTo: (id: number, newDate: string) => void
+    onReactivate?: (id: number) => void
     pastSubmissionDays?: number
 }) {
     const [open, setOpen] = useState(false)
+    const [currentPage, setCurrentPage] = useState(1)
+    const ITEMS_PER_PAGE = 5
 
     // effective_to の下限: today - pastSubmissionDays
     const minEffectiveTo = (() => {
@@ -1564,11 +1682,24 @@ function DeletedAccordion({ label, items, onUpdateEffectiveTo, pastSubmissionDay
         return format(d, 'yyyy-MM-dd')
     })()
 
+    // ソート: effective_to DESC（最近削除したものが上）
+    const sortedItems = [...items].sort((a, b) =>
+        b.effectiveTo.localeCompare(a.effectiveTo)
+    )
+
+    // ページネーション計算
+    const totalPages = Math.max(1, Math.ceil(sortedItems.length / ITEMS_PER_PAGE))
+    const safePage = Math.min(currentPage, totalPages)
+    const paginatedItems = sortedItems.slice(
+        (safePage - 1) * ITEMS_PER_PAGE,
+        safePage * ITEMS_PER_PAGE
+    )
+
     return (
         <div className="border rounded-lg bg-muted/5">
             <button
                 className="w-full flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground hover:bg-muted/20 transition-colors rounded-lg"
-                onClick={() => setOpen(!open)}
+                onClick={() => { setOpen(!open); setCurrentPage(1) }}
             >
                 <ChevronDown className={cn("w-4 h-4 transition-transform", open && "rotate-180")} />
                 <span>{label}</span>
@@ -1581,10 +1712,11 @@ function DeletedAccordion({ label, items, onUpdateEffectiveTo, pastSubmissionDay
                                 <th className="text-left py-1 font-medium">名前</th>
                                 <th className="text-left py-1 font-medium">適用開始</th>
                                 <th className="text-left py-1 font-medium">適用終了</th>
+                                {onReactivate && <th className="text-right py-1 font-medium w-10"></th>}
                             </tr>
                         </thead>
                         <tbody>
-                            {items.map(item => (
+                            {paginatedItems.map(item => (
                                 <tr key={item.id} className="border-b last:border-0">
                                     <td className="py-1.5 pr-2 truncate max-w-[120px]">{item.label}</td>
                                     <td className="py-1.5 pr-2 whitespace-nowrap">{item.effectiveFrom}</td>
@@ -1604,10 +1736,34 @@ function DeletedAccordion({ label, items, onUpdateEffectiveTo, pastSubmissionDay
                                             }}
                                         />
                                     </td>
+                                    {onReactivate && (
+                                        <td className="py-1.5 text-right">
+                                            <Button variant="ghost" size="icon"
+                                                className="h-6 w-6 text-muted-foreground hover:text-primary"
+                                                title="有効化"
+                                                onClick={() => onReactivate(item.id)}
+                                            >
+                                                <RotateCcw className="w-3.5 h-3.5" />
+                                            </Button>
+                                        </td>
+                                    )}
                                 </tr>
                             ))}
                         </tbody>
                     </table>
+                    {totalPages > 1 && (
+                        <div className="flex items-center justify-between pt-2 text-xs text-muted-foreground">
+                            <Button variant="ghost" size="sm" className="h-6 px-2 text-xs"
+                                disabled={safePage <= 1}
+                                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                            >前へ</Button>
+                            <span>{safePage} / {totalPages}</span>
+                            <Button variant="ghost" size="sm" className="h-6 px-2 text-xs"
+                                disabled={safePage >= totalPages}
+                                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                            >次へ</Button>
+                        </div>
+                    )}
                 </div>
             )}
         </div>
