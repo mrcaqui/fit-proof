@@ -7,6 +7,7 @@ import { WorkoutCard } from './WorkoutCard'
 import { PendingUploadCard } from './PendingUploadCard'
 import { Database } from '@/types/database.types'
 import { useSwipeable } from 'react-swipeable'
+import { toast } from '@/hooks/use-toast'
 
 type Submission = Database['public']['Tables']['submissions']['Row']
 type SubmissionItem = Database['public']['Tables']['submission_items']['Row']
@@ -237,14 +238,32 @@ export function SwipeableWorkoutView({
 
           return (
             <div className="flex flex-col gap-3">
-              {/* シールド適用済み表示 */}
+              {/* シールド適用済み表示（取り消しボタンを右上に統合） */}
               {isShield && (
-                <div className="flex items-center gap-2 p-3 rounded-lg border border-primary/20 bg-primary/5">
+                <div className="relative flex items-center gap-2 p-3 rounded-lg border border-primary/20 bg-primary/5">
                   <img src="/assets/shield.png" alt="シールド" className="w-8 h-8" />
                   <div>
                     <p className="text-sm font-semibold">シールド適用中</p>
                     <p className="text-xs text-muted-foreground">この日はシールドでストリークが守られています</p>
                   </div>
+                  {isMain && showShieldRemove && (
+                    <button
+                      className="absolute top-1.5 right-1.5 text-[11px] text-muted-foreground/70 hover:text-destructive transition-colors"
+                      onClick={async () => {
+                        const dateStr = format(date, 'yyyy-MM-dd')
+                        const success = await onRemoveShield?.(dateStr)
+                        if (success === false) {
+                          toast({
+                            title: "シールドの取り消しに失敗しました",
+                            description: "しばらくしてから再度お試しください",
+                            variant: "destructive",
+                          })
+                        }
+                      }}
+                    >
+                      取り消す
+                    </button>
+                  )}
                 </div>
               )}
               {/* シールド適用ボタン */}
@@ -252,27 +271,20 @@ export function SwipeableWorkoutView({
                 <Button
                   variant="outline"
                   className="flex items-center gap-2 w-full justify-center"
-                  onClick={() => {
+                  onClick={async () => {
                     const dateStr = format(date, 'yyyy-MM-dd')
-                    onApplyShield?.(dateStr)
+                    const success = await onApplyShield?.(dateStr)
+                    if (success === false) {
+                      toast({
+                        title: "シールドの適用に失敗しました",
+                        description: "しばらくしてから再度お試しください",
+                        variant: "destructive",
+                      })
+                    }
                   }}
                 >
                   <img src="/assets/shield.png" alt="" className="w-5 h-5" />
                   シールドを適用
-                </Button>
-              )}
-              {/* シールド取り消しボタン */}
-              {isMain && showShieldRemove && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="text-muted-foreground"
-                  onClick={() => {
-                    const dateStr = format(date, 'yyyy-MM-dd')
-                    onRemoveShield?.(dateStr)
-                  }}
-                >
-                  シールドを取り消す
                 </Button>
               )}
               {/* 投稿済み動画 */}

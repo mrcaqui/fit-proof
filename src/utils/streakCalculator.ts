@@ -165,8 +165,8 @@ export function calculateStreak(
         if (hasApproval) {
             consecutiveDays++
         } else if (shieldDates.has(dateStr)) {
-            // シールド適用日（手動適用されたレコード）
-            consecutiveDays++
+            // シールド適用日: ストリークを途切れさせないがカウントは増やさない（休息日と同じ扱い）
+            continue
         } else {
             break // ストリーク終了
         }

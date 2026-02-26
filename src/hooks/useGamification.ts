@@ -40,9 +40,11 @@ interface UseGamificationOptions {
     isRestDay: (date: Date) => boolean
     groupConfigs?: GroupConfig[]
     getTargetDaysPerWeek?: (date: Date) => number
+    dataLoading?: boolean
+    onRefreshSubmissions?: () => Promise<void> | void
 }
 
-export function useGamification({ targetUserId, submissions, isRestDay, groupConfigs, getTargetDaysPerWeek }: UseGamificationOptions) {
+export function useGamification({ targetUserId, submissions, isRestDay, groupConfigs, getTargetDaysPerWeek, dataLoading, onRefreshSubmissions }: UseGamificationOptions) {
     const { user } = useAuth()
     const effectiveUserId = targetUserId || user?.id
 
@@ -50,6 +52,8 @@ export function useGamification({ targetUserId, submissions, isRestDay, groupCon
     const [gamificationSettings, setGamificationSettings] = useState<GamificationSettings>(DEFAULT_GAMIFICATION_SETTINGS)
     const [pendingNotifications, setPendingNotifications] = useState<PendingNotification[]>([])
     const [loading, setLoading] = useState(true)
+
+    const isReady = !loading && !dataLoading
 
     // プロフィールからゲーミフィケーションデータを取得
     const fetchGamificationData = useCallback(async () => {
@@ -251,11 +255,38 @@ export function useGamification({ targetUserId, submissions, isRestDay, groupCon
         return Math.max(0, earnedShields - usedShields)
     }, [effectiveFrom, shieldStockFromDB, gamificationSettings.shield, perfectWeekCount, filteredSubmissions])
 
+    // effective_from 設定時、計算済みの shield_stock / perfect_week_count を DB に同期する
+    // RPC 呼び出し直前にのみ使用する（useEffect での自動同期は行わない）
+    const syncGamificationProfile = useCallback(async (): Promise<boolean> => {
+        if (!effectiveUserId || !effectiveFrom) return true
+        if (!isReady) {
+            console.warn('syncGamificationProfile called before data is ready, skipping')
+            return false
+        }
+        if (shieldStock === shieldStockFromDB && perfectWeekCount === (gamificationProfile.perfect_week_count ?? 0)) return true
+
+        const { error } = await supabase
+            .from('profiles')
+            .update({
+                shield_stock: shieldStock,
+                perfect_week_count: perfectWeekCount,
+            })
+            .eq('id', effectiveUserId)
+        if (error) {
+            console.error('Failed to sync gamification profile:', error)
+            return false
+        }
+        return true
+    }, [effectiveUserId, effectiveFrom, isReady, shieldStock, shieldStockFromDB, perfectWeekCount, gamificationProfile.perfect_week_count])
+
     // シールドを適用（DB RPC でアトミックに実行）
     const applyShield = useCallback(async (targetDate: string): Promise<boolean> => {
         if (!effectiveUserId) return false
         if (shieldStock <= 0) return false
         try {
+            const synced = await syncGamificationProfile()
+            if (!synced) return false
+
             const { data, error } = await (supabase.rpc as any)('apply_shield', {
                 p_user_id: effectiveUserId,
                 p_target_date: targetDate
@@ -263,18 +294,24 @@ export function useGamification({ targetUserId, submissions, isRestDay, groupCon
             if (error) throw error
             if (data === false) return false
 
+            // profiles と submissions の両方を再取得して
+            // フロントエンド計算値（shieldStock 含む）を即座に更新する
             await fetchGamificationData()
+            await onRefreshSubmissions?.()
             return true
         } catch (err) {
             console.error('Failed to apply shield:', err)
             return false
         }
-    }, [effectiveUserId, shieldStock, fetchGamificationData])
+    }, [effectiveUserId, shieldStock, syncGamificationProfile, fetchGamificationData, onRefreshSubmissions])
 
     // シールドを取り消す（DB RPC でアトミックに実行）
     const removeShield = useCallback(async (targetDate: string): Promise<boolean> => {
         if (!effectiveUserId) return false
         try {
+            const synced = await syncGamificationProfile()
+            if (!synced) return false
+
             const { data, error } = await (supabase.rpc as any)('remove_shield', {
                 p_user_id: effectiveUserId,
                 p_target_date: targetDate
@@ -283,12 +320,13 @@ export function useGamification({ targetUserId, submissions, isRestDay, groupCon
             if (data === false) return false
 
             await fetchGamificationData()
+            await onRefreshSubmissions?.()
             return true
         } catch (err) {
             console.error('Failed to remove shield:', err)
             return false
         }
-    }, [effectiveUserId, fetchGamificationData])
+    }, [effectiveUserId, syncGamificationProfile, fetchGamificationData, onRefreshSubmissions])
 
     // ゲーミフィケーション状態
     const state: GamificationState = useMemo(() => ({
