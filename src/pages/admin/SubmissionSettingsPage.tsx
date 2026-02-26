@@ -6,6 +6,7 @@ import { useSubmissionItems } from '@/hooks/useSubmissionItems'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { NumberStepper } from '@/components/ui/number-stepper'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Plus, Trash2, Calendar as CalendarIcon, Clock, Gamepad2, HardDrive, Info, Users } from 'lucide-react'
 import {
@@ -1213,13 +1214,11 @@ export default function SubmissionSettingsPage() {
                                 </div>
                                 <div className="flex items-center gap-3">
                                     <Label className="text-sm text-muted-foreground whitespace-nowrap">そのうち</Label>
-                                    <Input
-                                        type="number"
+                                    <NumberStepper
+                                        value={pendingGroupRequired}
+                                        onChange={setPendingGroupRequired}
                                         min={1}
                                         max={Math.max(1, pendingGroupDays.length - 1)}
-                                        value={pendingGroupRequired}
-                                        onChange={(e) => setPendingGroupRequired(Number(e.target.value))}
-                                        className="w-16"
                                     />
                                     <Label className="text-sm text-muted-foreground whitespace-nowrap">日でよい</Label>
                                 </div>

@@ -458,6 +458,9 @@ export default function CalendarPage() {
                     <p className="text-muted-foreground">
                       {(() => {
                         const settings = gamification.settings.straight;
+                        const targetDays = settings.use_target_days
+                          ? getTargetDaysPerWeek()
+                          : settings.custom_required_days;
                         const conditions: string[] = [];
                         if (!settings.allow_revival)
                           conditions.push("リバイバルなし");
@@ -467,7 +470,7 @@ export default function CalendarPage() {
                           conditions.length > 0
                             ? `${conditions.join("・")}で`
                             : "";
-                        return `1週間（月〜日）で目標日数を${condText}達成した回数`;
+                        return `1週間（月〜日）で目標日数（${targetDays}日）を${condText}達成した回数`;
                       })()}
                     </p>
                     <p className="text-xs text-muted-foreground/70 mt-1">
