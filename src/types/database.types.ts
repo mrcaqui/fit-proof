@@ -58,6 +58,7 @@ export interface Database {
                     gamification_settings?: Record<string, unknown> | null
                     video_retention_days?: number | null
                 }
+                Relationships: []
             }
             submission_items: {
                 Row: {
@@ -81,6 +82,7 @@ export interface Database {
                     created_at?: string
                     effective_from?: string
                 }
+                Relationships: []
             }
             submissions: {
                 Row: {
@@ -141,6 +143,15 @@ export interface Database {
                     video_size?: number | null
                     video_hash?: string | null
                 }
+                Relationships: [
+                    {
+                        foreignKeyName: "submissions_user_id_fkey"
+                        columns: ["user_id"]
+                        isOneToOne: false
+                        referencedRelation: "profiles"
+                        referencedColumns: ["id"]
+                    }
+                ]
             }
             submission_rules: {
                 Row: {
@@ -182,6 +193,7 @@ export interface Database {
                     group_id?: string | null
                     group_required_count?: number | null
                 }
+                Relationships: []
             }
             admin_comments: {
                 Row: {
@@ -208,6 +220,7 @@ export interface Database {
                     read_at?: string | null
                     created_at?: string
                 }
+                Relationships: []
             }
         }
         Views: {
