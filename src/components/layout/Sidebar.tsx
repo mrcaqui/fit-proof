@@ -39,11 +39,6 @@ export function Sidebar({ className, isCollapsed, setIsCollapsed }: SidebarProps
             icon: Users,
             href: "/admin/users",
         })
-        items.push({
-            title: "Submissions",
-            icon: Settings,
-            href: "/admin/submissions",
-        })
     }
 
     return (
@@ -148,11 +143,6 @@ export function MobileNav() {
             title: "Users",
             icon: Users,
             href: "/admin/users",
-        })
-        items.push({
-            title: "Submissions",
-            icon: Settings,
-            href: "/admin/submissions",
         })
     }
 
