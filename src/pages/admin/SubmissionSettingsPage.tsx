@@ -634,7 +634,7 @@ export default function SubmissionSettingsPage() {
     return (
         <div className="space-y-6 pb-10">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <h2 className="text-3xl font-bold tracking-tight">提出設定</h2>
+                <h2 className="text-3xl font-bold tracking-tight">Submission Settings</h2>
                 <div className="flex items-center gap-3">
                     <Label htmlFor="client-select" className="whitespace-nowrap">クライアント:</Label>
                     <Select value={selectedClientId} onValueChange={setSelectedClientId}>

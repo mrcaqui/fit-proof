@@ -1,5 +1,5 @@
 import { Link, useLocation } from "react-router-dom"
-import { Calendar, LogOut, Shield, Users, Menu, ChevronLeft, ChevronRight } from "lucide-react"
+import { Calendar, LogOut, Settings, Users, Menu, ChevronLeft, ChevronRight } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -30,8 +30,8 @@ export function Sidebar({ className, isCollapsed, setIsCollapsed }: SidebarProps
 
     if (profile?.role === 'admin') {
         items.push({
-            title: "提出設定",
-            icon: Shield,
+            title: "Submission Settings",
+            icon: Settings,
             href: "/admin/submission-settings",
         })
         items.push({
@@ -41,7 +41,7 @@ export function Sidebar({ className, isCollapsed, setIsCollapsed }: SidebarProps
         })
         items.push({
             title: "Submissions",
-            icon: Shield,
+            icon: Settings,
             href: "/admin/submissions",
         })
     }
@@ -108,7 +108,7 @@ export function Sidebar({ className, isCollapsed, setIsCollapsed }: SidebarProps
                         onClick={() => signOut()}
                     >
                         <LogOut className={cn("h-4 w-4", isCollapsed ? "" : "mr-2")} />
-                        {!isCollapsed && <span>ログアウト</span>}
+                        {!isCollapsed && <span>Sign Out</span>}
                     </Button>
                     {!isCollapsed && (
                         <div className="flex items-center justify-between px-4 py-2 border-t mt-2">
@@ -140,8 +140,8 @@ export function MobileNav() {
 
     if (profile?.role === 'admin') {
         items.push({
-            title: "提出設定",
-            icon: Shield,
+            title: "Submission Settings",
+            icon: Settings,
             href: "/admin/submission-settings",
         })
         items.push({
@@ -151,7 +151,7 @@ export function MobileNav() {
         })
         items.push({
             title: "Submissions",
-            icon: Shield,
+            icon: Settings,
             href: "/admin/submissions",
         })
     }
@@ -206,7 +206,7 @@ export function MobileNav() {
                         setOpen(false)
                     }}>
                         <LogOut className="mr-2 h-4 w-4" />
-                        ログアウト
+                        Sign Out
                     </Button>
                     <div className="flex items-center justify-between px-2 pt-2 border-t">
                         <span className="text-xs text-muted-foreground">v{__APP_VERSION__}</span>
