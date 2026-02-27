@@ -51,8 +51,14 @@ create table authorized_users (
   email text primary key,
   role text check (role in ('admin', 'client')) default 'client',
   user_id uuid references profiles(id) on delete set null,
+  preconfig jsonb default null,
   created_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
+
+-- profiles INSERT 後に user_id リンク + preconfig 適用するトリガー
+-- 詳細は supabase/migrations/preconfig_and_user_id_link.sql を参照
+-- CREATE OR REPLACE FUNCTION on_profile_insert() ... (SECURITY DEFINER)
+-- CREATE TRIGGER trg_on_profile_insert AFTER INSERT ON profiles FOR EACH ROW EXECUTE FUNCTION on_profile_insert();
 
 alter table authorized_users enable row level security;
 

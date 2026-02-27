@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { GamificationSettings, DEFAULT_GAMIFICATION_SETTINGS } from '@/types/gamification.types'
+import { PreconfigData, PreconfigRule, PreconfigItem, DEFAULT_PRECONFIG } from '@/types/preconfig.types'
 import { useSubmissionRules } from '@/hooks/useSubmissionRules'
 import { useSubmissionItems } from '@/hooks/useSubmissionItems'
 import { Button } from '@/components/ui/button'
@@ -8,7 +9,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { NumberStepper } from '@/components/ui/number-stepper'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
-import { Plus, Trash2, Calendar as CalendarIcon, Clock, Gamepad2, HardDrive, Info, Users, ChevronDown, RotateCcw } from 'lucide-react'
+import { Plus, Trash2, Calendar as CalendarIcon, Clock, Gamepad2, HardDrive, Info, Users, ChevronDown, RotateCcw, AlertTriangle } from 'lucide-react'
 import {
     Select,
     SelectContent,
@@ -46,6 +47,54 @@ const SUBMISSION_DAYS_OPTIONS = [
     { label: '無制限', value: 9999 },
 ]
 
+function isPreconfig(id: string): boolean {
+    return id.startsWith('preconfig:')
+}
+function getPreconfigEmail(id: string): string {
+    return id.replace('preconfig:', '')
+}
+
+type ClientEntry =
+    | { kind: 'profile'; id: string; display_name: string | null }
+    | { kind: 'preconfig'; email: string }
+
+/** displayRules から GroupConfig 互換のアクティブグループ設定を計算 */
+function getActiveGroupConfigsFromRules(displayRules: any[]) {
+    const groupRules = displayRules.filter(
+        (r: any) => r.rule_type === 'group' && r.group_id !== null && r.effective_to === null
+    )
+    const groupMap = new Map<string, any[]>()
+    for (const r of groupRules) {
+        const gid = r.group_id!
+        if (!groupMap.has(gid)) groupMap.set(gid, [])
+        groupMap.get(gid)!.push(r)
+    }
+    const configs: { groupId: string; daysOfWeek: number[]; requiredCount: number; effectiveFrom: string; effectiveTo: null }[] = []
+    for (const [groupId, groupRuleList] of groupMap) {
+        const daysOfWeek = groupRuleList
+            .filter((r: any) => r.day_of_week !== null)
+            .map((r: any) => r.day_of_week!)
+        const requiredCount = groupRuleList[0].group_required_count ?? 1
+        const effectiveFrom = groupRuleList
+            .map((r: any) => format(parseISO(r.effective_from), 'yyyy-MM-dd'))
+            .sort()[0]
+        configs.push({ groupId, daysOfWeek, requiredCount, effectiveFrom, effectiveTo: null })
+    }
+    return configs
+}
+
+/** displayRules から週目標日数を計算 */
+function getTargetDaysFromRules(displayRules: any[]): number {
+    const restDayCount = new Set(
+        displayRules
+            .filter((r: any) => r.rule_type === 'rest_day' && r.scope === 'weekly' && r.day_of_week !== null && r.effective_to === null)
+            .map((r: any) => r.day_of_week)
+    ).size
+    const groupConfigs = getActiveGroupConfigsFromRules(displayRules)
+    const groupReduceCount = groupConfigs.reduce((sum, g) => sum + (g.daysOfWeek.length - g.requiredCount), 0)
+    return 7 - restDayCount - groupReduceCount
+}
+
 export default function SubmissionSettingsPage() {
     const [selectedClientId, setSelectedClientId] = useState<string>(() => {
         if (typeof window !== "undefined") {
@@ -53,11 +102,15 @@ export default function SubmissionSettingsPage() {
         }
         return ''
     })
-    const [clients, setClients] = useState<{ id: string; display_name: string | null }[]>([])
+    const [clients, setClients] = useState<ClientEntry[]>([])
+    const [preconfigData, setPreconfigData] = useState<PreconfigData | null>(null)
+    const [nextTempId, setNextTempId] = useState(1)
+
+    const effectiveProfileId = isPreconfig(selectedClientId) ? undefined : selectedClientId
     const {
         rules, loading, refetch,
         getAllActiveGroupConfigs, getTargetDaysPerWeek
-    } = useSubmissionRules(selectedClientId)
+    } = useSubmissionRules(effectiveProfileId)
 
     // Deadline form state
     const [d_scope, setDScope] = useState<'monthly' | 'weekly' | 'daily'>('monthly')
@@ -85,37 +138,105 @@ export default function SubmissionSettingsPage() {
     const [videoRetentionDays, setVideoRetentionDays] = useState<number>(30)
     const [storageUsedBytes, setStorageUsedBytes] = useState<number>(0)
 
-    // Fetch clients
+    // Fetch clients (profile + preconfig)
     useEffect(() => {
         const fetchClients = async () => {
-            const { data, error } = await supabase
+            // Profile clients
+            const { data: profileData } = await supabase
                 .from('profiles')
                 .select('id, display_name')
                 .eq('role', 'client')
-            if (!error && data) {
-                const clientData = data as { id: string; display_name: string | null }[]
-                const sorted = [...clientData].sort((a, b) =>
-                    (a.display_name || '').localeCompare(b.display_name || '', 'ja')
-                )
-                setClients(sorted)
-                if (sorted.length > 0) {
-                    setSelectedClientId(prev => {
-                        if (!prev || !sorted.some(c => c.id === prev)) {
-                            return sorted[0].id
-                        }
-                        return prev
-                    })
-                }
+            const profileClients: ClientEntry[] = (profileData || []).map((p: any) => ({
+                kind: 'profile' as const,
+                id: p.id,
+                display_name: p.display_name,
+            }))
+
+            // Preconfig clients (authorized but not yet logged in)
+            const { data: authData } = await (supabase
+                .from('authorized_users' as any) as any)
+                .select('email')
+                .eq('role', 'client')
+                .is('user_id', null)
+            const preconfigClients: ClientEntry[] = (authData || []).map((a: any) => ({
+                kind: 'preconfig' as const,
+                email: a.email,
+            }))
+
+            const merged: ClientEntry[] = [
+                ...profileClients.sort((a, b) =>
+                    ((a as any).display_name || '').localeCompare((b as any).display_name || '', 'ja')
+                ),
+                ...preconfigClients.sort((a, b) =>
+                    (a as any).email.localeCompare((b as any).email)
+                ),
+            ]
+            setClients(merged)
+            if (merged.length > 0) {
+                setSelectedClientId(prev => {
+                    const prevExists = merged.some(c =>
+                        c.kind === 'profile' ? c.id === prev : `preconfig:${c.email}` === prev
+                    )
+                    if (!prev || !prevExists) {
+                        return merged[0].kind === 'profile' ? merged[0].id : `preconfig:${merged[0].email}`
+                    }
+                    return prev
+                })
             }
         }
         fetchClients()
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
 
+    // Preconfig ロード effect
+    useEffect(() => {
+        if (!selectedClientId) { setPreconfigData(null); return }
+        if (!isPreconfig(selectedClientId)) { setPreconfigData(null); return }
+
+        const email = getPreconfigEmail(selectedClientId)
+        const loadPreconfig = async () => {
+            const { data } = await (supabase
+                .from('authorized_users' as any) as any)
+                .select('preconfig')
+                .eq('email', email)
+                .single()
+
+            const raw = (data as any)?.preconfig as PreconfigData | null
+            const pc = raw || { ...DEFAULT_PRECONFIG }
+
+            // temp_id を採番
+            let tid = 1
+            pc.rules = (pc.rules || []).map((r: any) => ({ ...r, temp_id: tid++ }))
+            pc.items = (pc.items || []).map((i: any) => ({ ...i, temp_id: tid++ }))
+            setNextTempId(tid)
+            setPreconfigData(pc)
+
+            // profile_settings を各 form state にも反映
+            const ps = pc.profile_settings || DEFAULT_PRECONFIG.profile_settings
+            setPastSubmissionDays(ps.past_submission_days)
+            setFutureSubmissionDays(ps.future_submission_days)
+            setDeadlineMode(ps.deadline_mode)
+            setShowDuplicateToUser(ps.show_duplicate_to_user)
+            setVideoRetentionDays(ps.video_retention_days)
+            setGamificationSettings(ps.gamification_settings || DEFAULT_GAMIFICATION_SETTINGS)
+        }
+        loadPreconfig()
+    }, [selectedClientId])
+
+    // savePreconfig: 引数ベース設計
+    const savePreconfig = async (data: PreconfigData) => {
+        if (!isPreconfig(selectedClientId)) return
+        const email = getPreconfigEmail(selectedClientId)
+        await (supabase
+            .from('authorized_users' as any) as any)
+            .update({ preconfig: data })
+            .eq('email', email)
+    }
+
     // Fetch current calendar settings when client changes
     useEffect(() => {
         const fetchCalendarSettings = async () => {
-            if (!selectedClientId) return
+            if (!selectedClientId || isPreconfig(selectedClientId)) return
 
             const { data, error } = await supabase
                 .from('profiles')
@@ -138,7 +259,7 @@ export default function SubmissionSettingsPage() {
         }
 
         const fetchGamificationSettings = async () => {
-            if (!selectedClientId) return
+            if (!selectedClientId || isPreconfig(selectedClientId)) return
 
             const { data, error } = await supabase
                 .from('profiles')
@@ -173,19 +294,38 @@ export default function SubmissionSettingsPage() {
         if (!selectedClientId) return
 
         setIsUpdatingCalendarSettings(true)
-        const client = supabase.from('profiles') as any
-        const { error } = await client
-            .update({
-                past_submission_days: pastSubmissionDays,
-                future_submission_days: futureSubmissionDays,
-                deadline_mode: deadlineMode,
-                show_duplicate_to_user: showDuplicateToUser,
-                video_retention_days: videoRetentionDays
-            })
-            .eq('id', selectedClientId)
 
-        if (error) {
-            alert('設定の保存に失敗しました: ' + error.message)
+        if (isPreconfig(selectedClientId)) {
+            if (preconfigData) {
+                const next: PreconfigData = {
+                    ...preconfigData,
+                    profile_settings: {
+                        ...preconfigData.profile_settings,
+                        past_submission_days: pastSubmissionDays,
+                        future_submission_days: futureSubmissionDays,
+                        deadline_mode: deadlineMode,
+                        show_duplicate_to_user: showDuplicateToUser,
+                        video_retention_days: videoRetentionDays,
+                    },
+                }
+                setPreconfigData(next)
+                await savePreconfig(next)
+            }
+        } else {
+            const client = supabase.from('profiles') as any
+            const { error } = await client
+                .update({
+                    past_submission_days: pastSubmissionDays,
+                    future_submission_days: futureSubmissionDays,
+                    deadline_mode: deadlineMode,
+                    show_duplicate_to_user: showDuplicateToUser,
+                    video_retention_days: videoRetentionDays
+                })
+                .eq('id', selectedClientId)
+
+            if (error) {
+                alert('設定の保存に失敗しました: ' + error.message)
+            }
         }
         setIsUpdatingCalendarSettings(false)
     }
@@ -195,15 +335,30 @@ export default function SubmissionSettingsPage() {
         if (!selectedClientId) return
 
         setIsUpdatingGamification(true)
-        const client = supabase.from('profiles') as any
-        const { error } = await client
-            .update({
-                gamification_settings: gamificationSettings
-            })
-            .eq('id', selectedClientId)
 
-        if (error) {
-            alert('ゲーミフィケーション設定の保存に失敗しました: ' + error.message)
+        if (isPreconfig(selectedClientId)) {
+            if (preconfigData) {
+                const next: PreconfigData = {
+                    ...preconfigData,
+                    profile_settings: {
+                        ...preconfigData.profile_settings,
+                        gamification_settings: gamificationSettings,
+                    },
+                }
+                setPreconfigData(next)
+                await savePreconfig(next)
+            }
+        } else {
+            const client = supabase.from('profiles') as any
+            const { error } = await client
+                .update({
+                    gamification_settings: gamificationSettings
+                })
+                .eq('id', selectedClientId)
+
+            if (error) {
+                alert('ゲーミフィケーション設定の保存に失敗しました: ' + error.message)
+            }
         }
         setIsUpdatingGamification(false)
     }
@@ -244,10 +399,19 @@ export default function SubmissionSettingsPage() {
         }))
     }
 
-    const { items: submissionItems, refetch: refetchItems, handleUpdateItemEffectiveFrom } = useSubmissionItems(selectedClientId)
+    const { items: submissionItems, refetch: refetchItems, handleUpdateItemEffectiveFrom } = useSubmissionItems(effectiveProfileId)
     const [newItemName, setNewItemName] = useState('')
 
     const handleUpdateRuleEffectiveFrom = async (id: number, newDate: string) => {
+        if (isPreconfig(selectedClientId) && preconfigData) {
+            const nextRules = preconfigData.rules.map(r =>
+                r.temp_id === id ? { ...r, effective_from: newDate } : r
+            )
+            const next = { ...preconfigData, rules: nextRules }
+            setPreconfigData(next)
+            await savePreconfig(next)
+            return
+        }
         const client = supabase.from('submission_rules' as any) as any
         const { error } = await client
             .update({ effective_from: new Date(newDate + 'T00:00:00').toISOString() })
@@ -260,6 +424,15 @@ export default function SubmissionSettingsPage() {
     }
 
     const handleUpdateGroupEffectiveFrom = async (groupId: string, newDate: string) => {
+        if (isPreconfig(selectedClientId) && preconfigData) {
+            const nextRules = preconfigData.rules.map(r =>
+                r.group_id === groupId ? { ...r, effective_from: newDate } : r
+            )
+            const next = { ...preconfigData, rules: nextRules }
+            setPreconfigData(next)
+            await savePreconfig(next)
+            return
+        }
         const client = supabase.from('submission_rules' as any) as any
         const { error } = await client
             .update({ effective_from: new Date(newDate + 'T00:00:00').toISOString() })
@@ -273,6 +446,22 @@ export default function SubmissionSettingsPage() {
 
     const handleAddItem = async () => {
         if (!selectedClientId || !newItemName.trim()) return
+
+        if (isPreconfig(selectedClientId) && preconfigData) {
+            const newItem: PreconfigItem = {
+                temp_id: nextTempId,
+                name: newItemName.trim(),
+                effective_from: format(new Date(), 'yyyy-MM-dd'),
+                effective_to: null,
+            }
+            setNextTempId(prev => prev + 1)
+            const nextItems = [...preconfigData.items, newItem]
+            const next = { ...preconfigData, items: nextItems }
+            setPreconfigData(next)
+            await savePreconfig(next)
+            setNewItemName('')
+            return
+        }
 
         const { error } = await supabase
             .from('submission_items' as any)
@@ -291,6 +480,21 @@ export default function SubmissionSettingsPage() {
 
     const handleDeleteItem = async (id: number) => {
         if (!confirm('この項目を削除してよろしいですか？')) return
+
+        if (isPreconfig(selectedClientId) && preconfigData) {
+            const today = format(new Date(), 'yyyy-MM-dd')
+            const nextItems = preconfigData.items.map(i => {
+                if (i.temp_id === id) {
+                    const effTo = i.effective_from > today ? i.effective_from : today
+                    return { ...i, effective_to: effTo }
+                }
+                return i
+            })
+            const next = { ...preconfigData, items: nextItems }
+            setPreconfigData(next)
+            await savePreconfig(next)
+            return
+        }
 
         // 論理削除: effective_to = max(today, effective_from)
         const item = submissionItems.find(i => i.id === id)
@@ -312,6 +516,25 @@ export default function SubmissionSettingsPage() {
     }
 
     const handleReactivateItem = async (id: number) => {
+        if (isPreconfig(selectedClientId) && preconfigData) {
+            const item = preconfigData.items.find(i => i.temp_id === id)
+            if (!item) return
+            const conflict = preconfigData.items.find(
+                i => i.temp_id !== id && i.name === item.name && i.effective_to === null
+            )
+            if (conflict) {
+                alert(`同じ名前のアクティブな項目が存在します: ${item.name}`)
+                return
+            }
+            const nextItems = preconfigData.items.map(i =>
+                i.temp_id === id ? { ...i, effective_to: null } : i
+            )
+            const next = { ...preconfigData, items: nextItems }
+            setPreconfigData(next)
+            await savePreconfig(next)
+            return
+        }
+
         const item = submissionItems.find(i => i.id === id)
         if (!item) return
 
@@ -338,6 +561,47 @@ export default function SubmissionSettingsPage() {
 
         if (d_scope === 'weekly' && d_days.length === 0) {
             alert('曜日を選択してください')
+            return
+        }
+
+        if (isPreconfig(selectedClientId) && preconfigData) {
+            let tid = nextTempId
+            const newRules: PreconfigRule[] = []
+            if (d_scope === 'weekly') {
+                d_days.forEach(day => {
+                    newRules.push({
+                        temp_id: tid++,
+                        rule_type: 'deadline',
+                        scope: 'weekly',
+                        day_of_week: day,
+                        specific_date: null,
+                        value: d_time,
+                        effective_from: format(new Date(), 'yyyy-MM-dd'),
+                        group_id: null,
+                        group_required_count: null,
+                        effective_to: null,
+                    })
+                })
+            } else {
+                newRules.push({
+                    temp_id: tid++,
+                    rule_type: 'deadline',
+                    scope: d_scope,
+                    day_of_week: null,
+                    specific_date: d_scope === 'daily' ? d_date : null,
+                    value: d_time,
+                    effective_from: format(new Date(), 'yyyy-MM-dd'),
+                    group_id: null,
+                    group_required_count: null,
+                    effective_to: null,
+                })
+            }
+            setNextTempId(tid)
+            const nextRulesArr = [...preconfigData.rules, ...newRules]
+            const next = { ...preconfigData, rules: nextRulesArr }
+            setPreconfigData(next)
+            await savePreconfig(next)
+            setDDays([])
             return
         }
 
@@ -381,13 +645,38 @@ export default function SubmissionSettingsPage() {
             return
         }
 
-        // グループとの重複チェック
-        const groupConfigs = getAllActiveGroupConfigs()
-        const groupDays = new Set(groupConfigs.flatMap(g => g.daysOfWeek))
+        // グループとの重複チェック（displayRulesベース）
+        const currentGroupConfigs = isPreconfig(selectedClientId)
+            ? getActiveGroupConfigsFromRules(displayRules)
+            : getAllActiveGroupConfigs()
+        const groupDays = new Set(currentGroupConfigs.flatMap(g => g.daysOfWeek))
         const overlap = restDaySelectedDays.filter(d => groupDays.has(d))
         if (overlap.length > 0) {
             const overlapLabels = overlap.map(d => DAYS_OF_WEEK.find(dw => dw.value === d)?.label).join('、')
             alert(`${overlapLabels}曜はグループ設定と重複しています`)
+            return
+        }
+
+        if (isPreconfig(selectedClientId) && preconfigData) {
+            let tid = nextTempId
+            const newRules: PreconfigRule[] = restDaySelectedDays.map(day => ({
+                temp_id: tid++,
+                rule_type: 'rest_day' as const,
+                scope: 'weekly' as const,
+                day_of_week: day,
+                specific_date: null,
+                value: null,
+                effective_from: format(new Date(), 'yyyy-MM-dd'),
+                group_id: null,
+                group_required_count: null,
+                effective_to: null,
+            }))
+            setNextTempId(tid)
+            const nextRulesArr = [...preconfigData.rules, ...newRules]
+            const next = { ...preconfigData, rules: nextRulesArr }
+            setPreconfigData(next)
+            await savePreconfig(next)
+            setRestDaySelectedDays([])
             return
         }
 
@@ -420,14 +709,16 @@ export default function SubmissionSettingsPage() {
             return
         }
 
-        // 休息日との重複チェック
+        // 休息日との重複チェック（displayRulesベース）
         const restDayNums = new Set(
-            rules
-                .filter(r => r.rule_type === 'rest_day' && r.scope === 'weekly' && r.day_of_week !== null)
-                .map(r => r.day_of_week!)
+            displayRules
+                .filter((r: any) => r.rule_type === 'rest_day' && r.scope === 'weekly' && r.day_of_week !== null && r.effective_to === null)
+                .map((r: any) => r.day_of_week!)
         )
-        const groupConfigs = getAllActiveGroupConfigs()
-        const existingGroupDays = new Set(groupConfigs.flatMap(g => g.daysOfWeek))
+        const currentGroupConfigs = isPreconfig(selectedClientId)
+            ? getActiveGroupConfigsFromRules(displayRules)
+            : getAllActiveGroupConfigs()
+        const existingGroupDays = new Set(currentGroupConfigs.flatMap(g => g.daysOfWeek))
 
         const overlapRest = pendingGroupDays.filter(d => restDayNums.has(d))
         if (overlapRest.length > 0) {
@@ -440,6 +731,31 @@ export default function SubmissionSettingsPage() {
         if (overlapGroup.length > 0) {
             const labels = overlapGroup.map(d => DAYS_OF_WEEK.find(dw => dw.value === d)?.label).join('、')
             alert(`${labels}曜はすでに別のグループとして設定されています`)
+            return
+        }
+
+        if (isPreconfig(selectedClientId) && preconfigData) {
+            const groupId = crypto.randomUUID()
+            let tid = nextTempId
+            const newRules: PreconfigRule[] = pendingGroupDays.map(day => ({
+                temp_id: tid++,
+                rule_type: 'group' as const,
+                scope: 'weekly' as const,
+                day_of_week: day,
+                specific_date: null,
+                value: null,
+                effective_from: format(new Date(), 'yyyy-MM-dd'),
+                group_id: groupId,
+                group_required_count: pendingGroupRequired,
+                effective_to: null,
+            }))
+            setNextTempId(tid)
+            const nextRulesArr = [...preconfigData.rules, ...newRules]
+            const next = { ...preconfigData, rules: nextRulesArr }
+            setPreconfigData(next)
+            await savePreconfig(next)
+            setPendingGroupDays([])
+            setPendingGroupRequired(1)
             return
         }
 
@@ -468,6 +784,21 @@ export default function SubmissionSettingsPage() {
     const handleDeleteGroupRule = async (groupId: string) => {
         if (!confirm('このグループ設定を削除してよろしいですか？')) return
 
+        if (isPreconfig(selectedClientId) && preconfigData) {
+            const today = format(new Date(), 'yyyy-MM-dd')
+            const nextRules = preconfigData.rules.map(r => {
+                if (r.group_id === groupId) {
+                    const effTo = r.effective_from > today ? r.effective_from : today
+                    return { ...r, effective_to: effTo }
+                }
+                return r
+            })
+            const next = { ...preconfigData, rules: nextRules }
+            setPreconfigData(next)
+            await savePreconfig(next)
+            return
+        }
+
         // グループ内最古の effective_from を取得
         const groupRules = rules.filter(r => r.group_id === groupId)
         const today = new Date()
@@ -493,6 +824,21 @@ export default function SubmissionSettingsPage() {
     const handleDeleteRule = async (id: number) => {
         if (!confirm('この設定を削除してよろしいですか？')) return
 
+        if (isPreconfig(selectedClientId) && preconfigData) {
+            const today = format(new Date(), 'yyyy-MM-dd')
+            const nextRules = preconfigData.rules.map(r => {
+                if (r.temp_id === id) {
+                    const effTo = r.effective_from > today ? r.effective_from : today
+                    return { ...r, effective_to: effTo }
+                }
+                return r
+            })
+            const next = { ...preconfigData, rules: nextRules }
+            setPreconfigData(next)
+            await savePreconfig(next)
+            return
+        }
+
         const rule = rules.find(r => r.id === id)
         const today = new Date()
         today.setHours(0, 0, 0, 0)
@@ -513,6 +859,30 @@ export default function SubmissionSettingsPage() {
 
     // 削除済みルールの effective_to を更新するハンドラ
     const handleUpdateRuleEffectiveTo = async (id: number, newDate: string) => {
+        if (isPreconfig(selectedClientId) && preconfigData) {
+            const rule = preconfigData.rules.find(r => r.temp_id === id)
+            if (rule && newDate < rule.effective_from) {
+                alert('適用終了日は適用開始日以降にしてください')
+                return
+            }
+            if (rule?.group_id) {
+                const nextRules = preconfigData.rules.map(r =>
+                    r.group_id === rule.group_id ? { ...r, effective_to: newDate } : r
+                )
+                const next = { ...preconfigData, rules: nextRules }
+                setPreconfigData(next)
+                await savePreconfig(next)
+            } else {
+                const nextRules = preconfigData.rules.map(r =>
+                    r.temp_id === id ? { ...r, effective_to: newDate } : r
+                )
+                const next = { ...preconfigData, rules: nextRules }
+                setPreconfigData(next)
+                await savePreconfig(next)
+            }
+            return
+        }
+
         const rule = rules.find(r => r.id === id)
         if (rule) {
             const fromDate = format(parseISO(rule.effective_from), 'yyyy-MM-dd')
@@ -540,6 +910,78 @@ export default function SubmissionSettingsPage() {
     }
 
     const handleReactivateRule = async (id: number) => {
+        if (isPreconfig(selectedClientId) && preconfigData) {
+            const rule = preconfigData.rules.find(r => r.temp_id === id)
+            if (!rule) return
+
+            if (rule.rule_type === 'rest_day') {
+                const groupConfigs = getActiveGroupConfigsFromRules(displayRules)
+                const groupDays = new Set(groupConfigs.flatMap(g => g.daysOfWeek))
+                if (rule.day_of_week !== null && groupDays.has(rule.day_of_week)) {
+                    const dayLabel = DAYS_OF_WEEK.find(d => d.value === rule.day_of_week)?.label
+                    alert(`${dayLabel}曜はグループ設定と重複しているため有効化できません`)
+                    return
+                }
+                const activeRestConflict = preconfigData.rules.find(
+                    r => r.temp_id !== id && r.rule_type === 'rest_day' && r.day_of_week === rule.day_of_week && r.effective_to === null
+                )
+                if (activeRestConflict) {
+                    const dayLabel = DAYS_OF_WEEK.find(d => d.value === rule.day_of_week)?.label
+                    alert(`${dayLabel}曜はすでにアクティブな休息日として設定されています`)
+                    return
+                }
+            } else if (rule.rule_type === 'group' && rule.group_id) {
+                const grpRules = preconfigData.rules.filter(r => r.group_id === rule.group_id)
+                const grpDays = grpRules.filter(r => r.day_of_week !== null).map(r => r.day_of_week as number)
+                const activeRestDays = new Set(
+                    preconfigData.rules
+                        .filter(r => r.rule_type === 'rest_day' && r.effective_to === null && r.day_of_week !== null)
+                        .map(r => r.day_of_week!)
+                )
+                const overlapRest = grpDays.filter(d => activeRestDays.has(d))
+                if (overlapRest.length > 0) {
+                    const labels = overlapRest.map(d => DAYS_OF_WEEK.find(dw => dw.value === d)?.label).join('、')
+                    alert(`${labels}曜はすでに休息日として設定されているため有効化できません`)
+                    return
+                }
+                const otherGroupConfigs = getActiveGroupConfigsFromRules(displayRules)
+                const otherGroupDays = new Set(otherGroupConfigs.flatMap(g => g.daysOfWeek))
+                const overlapGroup = grpDays.filter(d => otherGroupDays.has(d))
+                if (overlapGroup.length > 0) {
+                    const labels = overlapGroup.map(d => DAYS_OF_WEEK.find(dw => dw.value === d)?.label).join('、')
+                    alert(`${labels}曜はすでに別のグループに設定されているため有効化できません`)
+                    return
+                }
+            } else if (rule.rule_type === 'deadline') {
+                const conflict = preconfigData.rules.find(
+                    r => r.temp_id !== id && r.rule_type === 'deadline' && r.effective_to === null &&
+                        r.scope === rule.scope && r.day_of_week === rule.day_of_week && r.specific_date === rule.specific_date
+                )
+                if (conflict) {
+                    alert('同じ条件のアクティブな期限が存在するため有効化できません')
+                    return
+                }
+            }
+
+            // グループの場合は group_id で一括復活
+            if (rule.rule_type === 'group' && rule.group_id) {
+                const nextRules = preconfigData.rules.map(r =>
+                    r.group_id === rule.group_id ? { ...r, effective_to: null } : r
+                )
+                const next = { ...preconfigData, rules: nextRules }
+                setPreconfigData(next)
+                await savePreconfig(next)
+            } else {
+                const nextRules = preconfigData.rules.map(r =>
+                    r.temp_id === id ? { ...r, effective_to: null } : r
+                )
+                const next = { ...preconfigData, rules: nextRules }
+                setPreconfigData(next)
+                await savePreconfig(next)
+            }
+            return
+        }
+
         const rule = rules.find(r => r.id === id)
         if (!rule) return
 
@@ -628,6 +1070,19 @@ export default function SubmissionSettingsPage() {
         }
     }
 
+    // displayRules / displayItems: preconfig モードではローカルデータ、通常はフック由来
+    const displayRules: any[] = isPreconfig(selectedClientId)
+        ? (preconfigData?.rules || []).map(r => ({
+            ...r, id: r.temp_id, user_id: 'preconfig', created_at: r.effective_from
+        }))
+        : rules
+
+    const displayItems: any[] = isPreconfig(selectedClientId)
+        ? (preconfigData?.items || []).map(i => ({
+            ...i, id: i.temp_id, user_id: 'preconfig', created_at: i.effective_from
+        }))
+        : submissionItems
+
     if (loading && clients.length === 0) return <div className="p-8 text-center animate-pulse">読み込み中...</div>
 
     const toggleDeadlineDay = (day: number) => {
@@ -652,17 +1107,38 @@ export default function SubmissionSettingsPage() {
                         setSelectedClientId(value)
                         localStorage.setItem("lastSelectedClientId", value)
                     }}>
-                        <SelectTrigger className="w-[200px]">
+                        <SelectTrigger className="w-[280px]">
                             <SelectValue placeholder="クライアントを選択" />
                         </SelectTrigger>
                         <SelectContent>
-                            {clients.map(c => (
-                                <SelectItem key={c.id} value={c.id}>{c.display_name || '名称未設定'}</SelectItem>
-                            ))}
+                            {clients.map(c => {
+                                if (c.kind === 'profile') {
+                                    return (
+                                        <SelectItem key={c.id} value={c.id}>
+                                            {c.display_name || '名称未設定'}
+                                        </SelectItem>
+                                    )
+                                }
+                                return (
+                                    <SelectItem key={`preconfig:${c.email}`} value={`preconfig:${c.email}`}>
+                                        [未ログイン] {c.email}
+                                    </SelectItem>
+                                )
+                            })}
                         </SelectContent>
                     </Select>
                 </div>
             </div>
+
+            {isPreconfig(selectedClientId) && (
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800 flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4 shrink-0" />
+                    <span>
+                        このユーザーはまだログインしていません。設定は事前構成として保存され、
+                        初回ログイン時に自動適用されます。
+                    </span>
+                </div>
+            )}
 
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
                 {/* Calendar Submission Limit Card */}
@@ -1065,7 +1541,8 @@ export default function SubmissionSettingsPage() {
                             </CardDescription>
                         </CardHeader>
                         <CardContent className="space-y-6 pt-6">
-                            {/* 使用量表示 */}
+                            {/* 使用量表示（preconfig モードでは非表示） */}
+                            {!isPreconfig(selectedClientId) && (
                             <div className="space-y-2">
                                 <div className="flex items-center gap-2">
                                     <Label>現在の使用量（全クライアント合計）</Label>
@@ -1094,6 +1571,7 @@ export default function SubmissionSettingsPage() {
                                     className="h-3"
                                 />
                             </div>
+                            )}
 
                             {/* 保持期間設定 */}
                             <div className="space-y-2">
@@ -1151,8 +1629,8 @@ export default function SubmissionSettingsPage() {
 
                             <div className="space-y-2">
                                 {(() => {
-                                    const activeItems = submissionItems.filter(i => i.effective_to === null)
-                                    const deletedItems = submissionItems.filter(i => i.effective_to !== null)
+                                    const activeItems = displayItems.filter((i: any) => i.effective_to === null)
+                                    const deletedItems = displayItems.filter((i: any) => i.effective_to !== null)
                                     return (
                                         <>
                                             {activeItems.length === 0 ? (
@@ -1171,7 +1649,18 @@ export default function SubmissionSettingsPage() {
                                                                         type="date"
                                                                         className="h-7 w-36 text-xs"
                                                                         value={format(parseISO(item.effective_from), 'yyyy-MM-dd')}
-                                                                        onChange={(e) => handleUpdateItemEffectiveFrom(item.id, e.target.value)}
+                                                                        onChange={async (e) => {
+                                                                            if (isPreconfig(selectedClientId) && preconfigData) {
+                                                                                const nextItems = preconfigData.items.map(i =>
+                                                                                    i.temp_id === item.id ? { ...i, effective_from: e.target.value } : i
+                                                                                )
+                                                                                const next = { ...preconfigData, items: nextItems }
+                                                                                setPreconfigData(next)
+                                                                                await savePreconfig(next)
+                                                                            } else {
+                                                                                handleUpdateItemEffectiveFrom(item.id, e.target.value)
+                                                                            }
+                                                                        }}
                                                                     />
                                                                 </div>
                                                                 <Button
@@ -1197,6 +1686,20 @@ export default function SubmissionSettingsPage() {
                                                         effectiveTo: item.effective_to ? format(parseISO(item.effective_to), 'yyyy-MM-dd') : '',
                                                     }))}
                                                     onUpdateEffectiveTo={async (id, newDate) => {
+                                                        if (isPreconfig(selectedClientId) && preconfigData) {
+                                                            const item = preconfigData.items.find(i => i.temp_id === id)
+                                                            if (item && newDate < item.effective_from) {
+                                                                alert('適用終了日は適用開始日以降にしてください')
+                                                                return
+                                                            }
+                                                            const nextItems = preconfigData.items.map(i =>
+                                                                i.temp_id === id ? { ...i, effective_to: newDate } : i
+                                                            )
+                                                            const next = { ...preconfigData, items: nextItems }
+                                                            setPreconfigData(next)
+                                                            await savePreconfig(next)
+                                                            return
+                                                        }
                                                         const item = submissionItems.find(i => i.id === id)
                                                         if (item) {
                                                             const fromDate = format(parseISO(item.effective_from), 'yyyy-MM-dd')
@@ -1346,7 +1849,7 @@ export default function SubmissionSettingsPage() {
                     </Card>
 
                     <RuleList
-                        rules={rules.filter(r => r.rule_type === 'deadline')}
+                        rules={displayRules.filter((r: any) => r.rule_type === 'deadline')}
                         onDelete={handleDeleteRule}
                         onUpdateEffectiveFrom={handleUpdateRuleEffectiveFrom}
                         onUpdateGroupEffectiveFrom={handleUpdateGroupEffectiveFrom}
@@ -1365,7 +1868,7 @@ export default function SubmissionSettingsPage() {
                                 <CalendarIcon className="w-5 h-5" /> 目標日の設定
                             </CardTitle>
                             <CardDescription>
-                                週目標日数: <span className="font-bold">{getTargetDaysPerWeek()} 日</span>（自動計算）
+                                週目標日数: <span className="font-bold">{isPreconfig(selectedClientId) ? getTargetDaysFromRules(displayRules) : getTargetDaysPerWeek()} 日</span>（自動計算）
                             </CardDescription>
                         </CardHeader>
                         <CardContent className="space-y-6 pt-6">
@@ -1445,7 +1948,7 @@ export default function SubmissionSettingsPage() {
                     </Card>
 
                     <RuleList
-                        rules={rules.filter(r => r.rule_type === 'rest_day' || r.rule_type === 'group')}
+                        rules={displayRules.filter((r: any) => r.rule_type === 'rest_day' || r.rule_type === 'group')}
                         onDelete={handleDeleteRule}
                         onUpdateEffectiveFrom={handleUpdateRuleEffectiveFrom}
                         onUpdateGroupEffectiveFrom={handleUpdateGroupEffectiveFrom}

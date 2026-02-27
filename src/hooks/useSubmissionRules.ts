@@ -24,6 +24,7 @@ export function useSubmissionRules(userId?: string) {
 
     const fetchRules = useCallback(async () => {
         if (!userId) {
+            setRules([])
             setLoading(false)
             return
         }

@@ -118,7 +118,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     console.error("Error creating profile:", insertError)
                 }
 
-                setProfile(newProfile)
+                // トリガーが preconfig の profile_settings を適用するため、DBから再取得
+                const { data: freshProfile } = await supabase
+                    .from('profiles')
+                    .select('*')
+                    .eq('id', userId)
+                    .single()
+                setProfile((freshProfile as Profile) || newProfile)
             } else if (error) {
                 console.error("Error fetching profile:", error)
                 setProfile({
@@ -167,12 +173,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 setProfile(null)
             }
 
-            // authorized_users.user_id を紐付け（未設定の場合のみ）
-            await (supabase as any)
-                .from('authorized_users')
-                .update({ user_id: userId })
-                .eq('email', email)
-                .is('user_id', null)
+            // authorized_users.user_id のリンクはDBトリガー（on_profile_insert）が自動処理
         } finally {
             setLoading(false)
         }
