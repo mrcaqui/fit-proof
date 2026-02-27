@@ -37,6 +37,7 @@ export function VideoPlayerModal({ videoUrl, onClose }: VideoPlayerModalProps) {
     const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
     const tapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
     const lastTapTimeRef = useRef<{ time: number; side: 'left' | 'right' } | null>(null)
+    const volumeSliderTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
     const [isPlaying, setIsPlaying] = useState(false)
     const [currentTime, setCurrentTime] = useState(0)
@@ -60,6 +61,8 @@ export function VideoPlayerModal({ videoUrl, onClose }: VideoPlayerModalProps) {
     const [isMuted, setIsMuted] = useState(() => {
         return localStorage.getItem(LS_MUTED) === 'true'
     })
+    const [isTouchDevice, setIsTouchDevice] = useState(false)
+    const [volumeSliderVisible, setVolumeSliderVisible] = useState(false)
 
     // Refs for keyboard handler (avoid stale closures)
     const volumeRef = useRef(volume)
@@ -107,6 +110,15 @@ export function VideoPlayerModal({ videoUrl, onClose }: VideoPlayerModalProps) {
         }
     }, [videoUrl]) // eslint-disable-line react-hooks/exhaustive-deps
 
+    // --- Touch device detection ---
+    useEffect(() => {
+        const mql = window.matchMedia('(pointer: coarse)')
+        setIsTouchDevice(mql.matches)
+        const handler = (e: MediaQueryListEvent) => setIsTouchDevice(e.matches)
+        mql.addEventListener('change', handler)
+        return () => mql.removeEventListener('change', handler)
+    }, [])
+
     // --- Event handlers (defined before keyboard effect) ---
     const showControls = useCallback(() => {
         setControlsVisible(true)
@@ -147,6 +159,29 @@ export function VideoPlayerModal({ videoUrl, onClose }: VideoPlayerModalProps) {
         video.muted = newMuted
         setIsMuted(newMuted)
     }, [])
+
+    const showVolumeSlider = useCallback(() => {
+        setVolumeSliderVisible(true)
+        if (volumeSliderTimerRef.current) clearTimeout(volumeSliderTimerRef.current)
+        volumeSliderTimerRef.current = setTimeout(() => {
+            setVolumeSliderVisible(false)
+            volumeSliderTimerRef.current = null
+        }, 3500)
+    }, [])
+
+    const handleVolumeButtonClick = useCallback(() => {
+        toggleMute()
+        if (isTouchDevice) {
+            showVolumeSlider()
+        }
+    }, [toggleMute, isTouchDevice, showVolumeSlider])
+
+    const handleVolumeSliderChange = useCallback((val: number[]) => {
+        changeVolume(val[0] / 100)
+        if (isTouchDevice) {
+            showVolumeSlider()
+        }
+    }, [changeVolume, isTouchDevice, showVolumeSlider])
 
     const changePlaybackRate = useCallback((rate: number) => {
         const video = videoRef.current
@@ -206,9 +241,23 @@ export function VideoPlayerModal({ videoUrl, onClose }: VideoPlayerModalProps) {
         tapTimerRef.current = setTimeout(() => {
             tapTimerRef.current = null
             lastTapTimeRef.current = null
-            togglePlay()
+            if (isTouchDevice) {
+                // モバイル: コントロール表示/非表示を切り替え
+                if (controlsVisible) {
+                    setControlsVisible(false)
+                    if (hideTimerRef.current) {
+                        clearTimeout(hideTimerRef.current)
+                        hideTimerRef.current = null
+                    }
+                } else {
+                    showControls()
+                }
+            } else {
+                // デスクトップ: 再生/一時停止（既存動作）
+                togglePlay()
+            }
         }, 300)
-    }, [handleSkip, togglePlay])
+    }, [handleSkip, togglePlay, isTouchDevice, controlsVisible, showControls])
 
     // --- Keyboard shortcuts ---
     useEffect(() => {
@@ -296,6 +345,7 @@ export function VideoPlayerModal({ videoUrl, onClose }: VideoPlayerModalProps) {
         return () => {
             if (hideTimerRef.current) clearTimeout(hideTimerRef.current)
             if (tapTimerRef.current) clearTimeout(tapTimerRef.current)
+            if (volumeSliderTimerRef.current) clearTimeout(volumeSliderTimerRef.current)
         }
     }, [])
 
@@ -306,7 +356,7 @@ export function VideoPlayerModal({ videoUrl, onClose }: VideoPlayerModalProps) {
             ref={containerRef}
             className="fixed inset-0 z-50 bg-black"
             onMouseMove={showControls}
-            onTouchStart={showControls}
+            onTouchStart={isTouchDevice ? undefined : showControls}
             tabIndex={-1}
             role="dialog"
             aria-modal="true"
@@ -400,6 +450,25 @@ export function VideoPlayerModal({ videoUrl, onClose }: VideoPlayerModalProps) {
                 </div>
             )}
 
+            {/* Center play/pause button */}
+            {controlsVisible && !isLoading && !hasError && (
+                <div className="absolute inset-0 z-[15] flex items-center justify-center pointer-events-none">
+                    <button
+                        className="pointer-events-auto rounded-full bg-black/50
+                                   p-4 text-white hover:bg-black/70
+                                   transition-all duration-200 hover:scale-110"
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            togglePlay()
+                        }}
+                    >
+                        {isPlaying
+                            ? <Pause className="h-12 w-12 fill-white" />
+                            : <Play className="h-12 w-12 fill-white" />}
+                    </button>
+                </div>
+            )}
+
             {/* Bottom control bar */}
             <div
                 className={cn(
@@ -438,18 +507,20 @@ export function VideoPlayerModal({ videoUrl, onClose }: VideoPlayerModalProps) {
 
                     {/* Volume */}
                     <div className="flex items-center gap-1 group">
-                        <button onClick={toggleMute}>
+                        <button onClick={handleVolumeButtonClick}>
                             {isMuted || volume === 0
                                 ? <VolumeX className="h-5 w-5" />
                                 : volume < 0.5
                                 ? <Volume1 className="h-5 w-5" />
                                 : <Volume2 className="h-5 w-5" />}
                         </button>
-                        <div className="w-0 overflow-hidden group-hover:w-20
-                                        transition-all duration-200">
+                        <div className={cn(
+                            "overflow-hidden transition-all duration-200",
+                            volumeSliderVisible ? "w-20" : "w-0 group-hover:w-20"
+                        )}>
                             <Slider
                                 value={[isMuted ? 0 : volume * 100]}
-                                onValueChange={(val) => changeVolume(val[0] / 100)}
+                                onValueChange={handleVolumeSliderChange}
                                 max={100}
                                 step={1}
                                 className="w-20"
