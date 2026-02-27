@@ -14,9 +14,10 @@ declare const __APP_VERSION__: string
 interface SidebarProps extends React.HTMLAttributes<HTMLDivElement> {
     isCollapsed: boolean
     setIsCollapsed: (value: boolean) => void
+    unreviewedCount?: number
 }
 
-export function Sidebar({ className, isCollapsed, setIsCollapsed }: SidebarProps) {
+export function Sidebar({ className, isCollapsed, setIsCollapsed, unreviewedCount = 0 }: SidebarProps) {
     const location = useLocation()
     const { signOut, profile, user } = useAuth()
 
@@ -62,8 +63,24 @@ export function Sidebar({ className, isCollapsed, setIsCollapsed }: SidebarProps
                                 asChild
                             >
                                 <Link to={item.href}>
-                                    <item.icon className={cn("h-4 w-4", isCollapsed ? "" : "mr-2")} />
-                                    {!isCollapsed && <span>{item.title}</span>}
+                                    {isCollapsed ? (
+                                        <span className="relative">
+                                            <item.icon className="h-4 w-4" />
+                                            {item.href === "/" && unreviewedCount > 0 && (
+                                                <span className="absolute -top-1.5 -right-1.5 h-2 w-2 rounded-full bg-destructive" />
+                                            )}
+                                        </span>
+                                    ) : (
+                                        <>
+                                            <item.icon className="mr-2 h-4 w-4" />
+                                            <span>{item.title}</span>
+                                            {item.href === "/" && unreviewedCount > 0 && (
+                                                <span className="ml-auto bg-destructive text-destructive-foreground text-xs rounded-full h-5 min-w-5 flex items-center justify-center px-1 font-medium">
+                                                    {unreviewedCount > 99 ? '99+' : unreviewedCount}
+                                                </span>
+                                            )}
+                                        </>
+                                    )}
                                 </Link>
                             </Button>
                         ))}
@@ -120,7 +137,7 @@ export function Sidebar({ className, isCollapsed, setIsCollapsed }: SidebarProps
     )
 }
 
-export function MobileNav() {
+export function MobileNav({ unreviewedCount = 0 }: { unreviewedCount?: number }) {
     const [open, setOpen] = useState(false)
     const location = useLocation()
     const { signOut, profile, user } = useAuth()
@@ -180,6 +197,11 @@ export function MobileNav() {
                             >
                                 <item.icon className="mr-2 h-4 w-4" />
                                 {item.title}
+                                {item.href === "/" && unreviewedCount > 0 && (
+                                    <span className="ml-auto bg-destructive text-destructive-foreground text-xs rounded-full h-5 min-w-5 flex items-center justify-center px-1 font-medium">
+                                        {unreviewedCount > 99 ? '99+' : unreviewedCount}
+                                    </span>
+                                )}
                             </Link>
                         ))}
                     </div>

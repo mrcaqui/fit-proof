@@ -5,10 +5,12 @@ import { useState, useEffect } from "react"
 import { cn } from "@/lib/utils"
 import { useAuth } from "@/context/AuthContext"
 import { supabase } from "@/lib/supabase"
+import { useUnreviewedCount } from "@/hooks/useUnreviewedCount"
 
 export default function AppLayout() {
     const [isCollapsed, setIsCollapsed] = useState(false)
     const { profile } = useAuth()
+    const { count: unreviewedCount } = useUnreviewedCount(profile?.role === 'admin')
 
     // 管理者がアプリを開いたタイミングで cleanup-videos を自動実行する。
     // UI をブロックせずバックグラウンドで実行し、結果は console のみに記録する。
@@ -26,7 +28,7 @@ export default function AppLayout() {
             <div className="flex min-h-screen flex-col">
                 <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 md:hidden">
                     <div className="container flex h-14 items-center">
-                        <MobileNav />
+                        <MobileNav unreviewedCount={unreviewedCount} />
                     </div>
                 </header>
 
@@ -35,7 +37,7 @@ export default function AppLayout() {
                     isCollapsed ? "md:grid-cols-[64px_1fr]" : "md:grid-cols-[256px_1fr]"
                 )}>
                     <aside className="hidden border-r bg-muted/40 md:block min-h-screen relative">
-                        <Sidebar isCollapsed={isCollapsed} setIsCollapsed={setIsCollapsed} />
+                        <Sidebar isCollapsed={isCollapsed} setIsCollapsed={setIsCollapsed} unreviewedCount={unreviewedCount} />
                     </aside>
 
                     <main className="flex w-full flex-col overflow-hidden">
