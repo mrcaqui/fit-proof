@@ -47,7 +47,12 @@ const SUBMISSION_DAYS_OPTIONS = [
 ]
 
 export default function SubmissionSettingsPage() {
-    const [selectedClientId, setSelectedClientId] = useState<string>('')
+    const [selectedClientId, setSelectedClientId] = useState<string>(() => {
+        if (typeof window !== "undefined") {
+            return localStorage.getItem("lastSelectedClientId") || ''
+        }
+        return ''
+    })
     const [clients, setClients] = useState<{ id: string; display_name: string | null }[]>([])
     const {
         rules, loading, refetch,
@@ -93,13 +98,19 @@ export default function SubmissionSettingsPage() {
                     (a.display_name || '').localeCompare(b.display_name || '', 'ja')
                 )
                 setClients(sorted)
-                if (sorted.length > 0 && !selectedClientId) {
-                    setSelectedClientId(sorted[0].id)
+                if (sorted.length > 0) {
+                    setSelectedClientId(prev => {
+                        if (!prev || !sorted.some(c => c.id === prev)) {
+                            return sorted[0].id
+                        }
+                        return prev
+                    })
                 }
             }
         }
         fetchClients()
-    }, [selectedClientId])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
 
     // Fetch current calendar settings when client changes
     useEffect(() => {
@@ -637,7 +648,10 @@ export default function SubmissionSettingsPage() {
                 <h2 className="text-3xl font-bold tracking-tight">Submission Settings</h2>
                 <div className="flex items-center gap-3">
                     <Label htmlFor="client-select" className="whitespace-nowrap">クライアント:</Label>
-                    <Select value={selectedClientId} onValueChange={setSelectedClientId}>
+                    <Select value={selectedClientId} onValueChange={(value) => {
+                        setSelectedClientId(value)
+                        localStorage.setItem("lastSelectedClientId", value)
+                    }}>
                         <SelectTrigger className="w-[200px]">
                             <SelectValue placeholder="クライアントを選択" />
                         </SelectTrigger>
