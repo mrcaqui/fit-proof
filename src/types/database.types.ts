@@ -93,6 +93,7 @@ export interface Database {
                     user_id: string
                     type: 'video' | 'comment' | 'shield'
                     r2_key: string | null
+                    bunny_video_id: string | null
                     thumbnail_url: string | null
                     duration: number | null
                     comment_text: string | null
@@ -113,6 +114,7 @@ export interface Database {
                     user_id: string
                     type: 'video' | 'comment' | 'shield'
                     r2_key?: string | null
+                    bunny_video_id?: string | null
                     thumbnail_url?: string | null
                     duration?: number | null
                     comment_text?: string | null
@@ -132,6 +134,7 @@ export interface Database {
                     user_id?: string
                     type?: 'video' | 'comment' | 'shield'
                     r2_key?: string | null
+                    bunny_video_id?: string | null
                     thumbnail_url?: string | null
                     duration?: number | null
                     comment_text?: string | null
@@ -233,7 +236,25 @@ export interface Database {
             [_ in never]: never
         }
         Functions: {
-            [_ in never]: never
+            delete_user_completely: {
+                Args: { target_email: string }
+                Returns: { target_user_id: string; bunny_video_ids: string[] }[]
+            }
+            replace_submissions: {
+                Args: {
+                    p_user_id: string
+                    p_target_date: string
+                    p_submission_item_id: number | null
+                    p_bunny_video_id: string
+                    p_video_size: number
+                    p_video_hash: string | null
+                    p_duration: number | null
+                    p_thumbnail_url: string | null
+                    p_file_name: string | null
+                    p_is_late: boolean
+                }
+                Returns: { old_bunny_video_ids: string[]; new_id: number }[]
+            }
         }
         Enums: {
             [_ in never]: never

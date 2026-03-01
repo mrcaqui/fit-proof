@@ -420,7 +420,9 @@ export function VideoPlayerModal({ videoUrl, onClose }: VideoPlayerModalProps) {
             {hasError && (
                 <div className="absolute inset-0 flex items-center justify-center z-10
                                 pointer-events-none">
-                    <p className="text-white text-lg">Failed to load video</p>
+                    <p className="text-white text-lg">
+                        {videoUrl?.includes('b-cdn.net') ? '動画をエンコード中です。しばらくお待ちください。' : 'Failed to load video'}
+                    </p>
                 </div>
             )}
 

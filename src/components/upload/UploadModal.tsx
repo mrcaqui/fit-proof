@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { Database } from "@/types/database.types"
-import { PutObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3'
-import { r2Client, R2_BUCKET_NAME, checkR2StorageAvailable, deleteR2Object } from '@/lib/r2'
+import * as tus from 'tus-js-client'
+import { createBunnyVideo, deleteBunnyVideo, checkStorageAvailable } from '@/lib/bunny'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/context/AuthContext'
 import { generateThumbnail } from '@/utils/thumbnail'
@@ -11,7 +11,8 @@ import { Upload, CheckCircle, AlertCircle, Film, X } from 'lucide-react'
 import { format } from 'date-fns'
 import { ja } from 'date-fns/locale'
 
-const MAX_FILE_SIZE = 100 * 1024 * 1024 // 100MB
+const MAX_FILE_SIZE = 500 * 1024 * 1024 // 500MB
+const HASH_THRESHOLD = 100 * 1024 * 1024 // 100MB超はハッシュスキップ
 const ALLOWED_TYPES = ['video/mp4', 'video/quicktime', 'video/webm']
 
 interface UploadModalProps {
@@ -34,7 +35,6 @@ export function UploadModal({ targetDate, onClose, onSuccess, items, completedSu
         success: boolean,
         isUploading: boolean,
         hash: string | null,
-        arrayBuffer: ArrayBuffer | null
     }>>({})
 
     const fileInputRefs = useRef<Record<number | string, HTMLInputElement | null>>({})
@@ -51,7 +51,7 @@ export function UploadModal({ targetDate, onClose, onSuccess, items, completedSu
     const updateState = (id: number | string, newState: Partial<typeof uploadingState[number]>) => {
         setUploadingState(prev => ({
             ...prev,
-            [id]: { ...(prev[id] || { file: null, thumbnail: null, duration: null, progress: 0, error: null, success: false, isUploading: false, hash: null, arrayBuffer: null }), ...newState }
+            [id]: { ...(prev[id] || { file: null, thumbnail: null, duration: null, progress: 0, error: null, success: false, isUploading: false, hash: null }), ...newState }
         }))
     }
 
@@ -67,12 +67,11 @@ export function UploadModal({ targetDate, onClose, onSuccess, items, completedSu
         })
     }
 
-    const calculateHash = async (file: File): Promise<{ hash: string; arrayBuffer: ArrayBuffer }> => {
+    const calculateHash = async (file: File): Promise<string> => {
         const arrayBuffer = await file.arrayBuffer()
         const hashBuffer = await crypto.subtle.digest('SHA-256', arrayBuffer)
         const hashArray = Array.from(new Uint8Array(hashBuffer))
-        const hash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
-        return { hash, arrayBuffer }
+        return hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
     }
 
     const formatDuration = (seconds: number) => {
@@ -93,15 +92,14 @@ export function UploadModal({ targetDate, onClose, onSuccess, items, completedSu
         }
 
         if (selectedFile.size > MAX_FILE_SIZE) {
-            updateState(itemId, { error: 'ファイルサイズが大きすぎます。100MB以下のファイルを選択してください。' })
+            updateState(itemId, { error: 'ファイルサイズが大きすぎます。500MB以下のファイルを選択してください。' })
             return
         }
 
         updateState(itemId, { file: selectedFile, thumbnail: null, duration: null, error: null, success: false })
 
         try {
-            // generateThumbnail, getVideoDuration, calculateHash を並行実行
-            const [thumbUrl, duration, hashResult] = await Promise.all([
+            const tasks: Promise<any>[] = [
                 generateThumbnail(selectedFile).catch(err => {
                     console.error('Thumbnail generation failed:', err)
                     return null
@@ -110,17 +108,26 @@ export function UploadModal({ targetDate, onClose, onSuccess, items, completedSu
                     console.error('Duration extraction failed:', err)
                     return null
                 }),
-                calculateHash(selectedFile).catch(err => {
-                    console.error('Hash calculation failed:', err)
-                    return null
-                })
-            ])
+            ]
+
+            // 100MB以下のみハッシュ計算
+            if (selectedFile.size <= HASH_THRESHOLD) {
+                tasks.push(
+                    calculateHash(selectedFile).catch(err => {
+                        console.error('Hash calculation failed:', err)
+                        return null
+                    })
+                )
+            } else {
+                tasks.push(Promise.resolve(null))
+            }
+
+            const [thumbUrl, duration, hash] = await Promise.all(tasks)
 
             updateState(itemId, {
                 thumbnail: thumbUrl,
                 duration,
-                hash: hashResult?.hash || null,
-                arrayBuffer: hashResult?.arrayBuffer || null
+                hash: hash || null,
             })
         } catch (err) {
             console.error('Metadata extraction failed:', err)
@@ -133,31 +140,26 @@ export function UploadModal({ targetDate, onClose, onSuccess, items, completedSu
 
         updateState(itemId, { isUploading: true, progress: 0, error: null })
 
-        try {
-            const timestamp = Date.now()
-            const fileExtension = state.file.name.split('.').pop()
-            const key = `uploads/${user.id}/${timestamp}.${fileExtension}`
+        let bunnyVideoId: string | null = null
 
+        try {
             const targetDateStr = format(targetDate, 'yyyy-MM-dd')
             const normalizedItemId = typeof itemId === 'number' ? itemId : null
 
-            // 既存のレコードを検索（同じユーザー、同じ日付、同じ項目）
-            // video_size も取得して既存ファイルのサイズを差分チェックに使う
+            // 既存のレコードを検索（video_size も取得して差分チェックに使う）
             const { data: existing } = await supabase
                 .from('submissions')
-                .select('id, r2_key, video_size')
+                .select('id, bunny_video_id, video_size')
                 .match({
                     user_id: user.id,
                     target_date: targetDateStr,
                     submission_item_id: normalizedItemId
-                }) as { data: { id: number, r2_key: string | null, video_size: number | null }[] | null }
+                }) as { data: { id: number, bunny_video_id: string | null, video_size: number | null }[] | null }
 
-            // 全件合算（複数レコード時に差分を正しく計算するため）
             const existingTotalSize = (existing || []).reduce((sum, r) => sum + (r.video_size || 0), 0)
 
-            // ① 早期 UX チェック（非原子的・先行フィードバック用）
-            // この時点ではまだ delete/upload 未実施のため existingTotalSize を差し引いて判定する
-            const storageCheck = await checkR2StorageAvailable(state.file.size, existingTotalSize)
+            // 早期 UX チェック
+            const storageCheck = await checkStorageAvailable(state.file.size, existingTotalSize)
             if (!storageCheck.available) {
                 updateState(itemId, {
                     error: 'ストレージが一杯のため、アップロードできません。管理者に連絡してください。',
@@ -166,73 +168,102 @@ export function UploadModal({ targetDate, onClose, onSuccess, items, completedSu
                 return
             }
 
-            // 既存レコードがあれば削除（DB & R2）
-            if (existing && existing.length > 0) {
-                for (const sub of existing) {
-                    // DBから削除
-                    await supabase.from('submissions').delete().eq('id', sub.id)
-                    // R2からも削除
-                    if (sub.r2_key) {
-                        try {
-                            await r2Client.send(new DeleteObjectCommand({
-                                Bucket: R2_BUCKET_NAME,
-                                Key: sub.r2_key
-                            }))
-                        } catch (e) {
-                            console.error('Failed to delete old R2 object:', e)
-                        }
+            // Bunny にビデオ作成 + TUS 認証情報取得
+            const bunnyResult = await createBunnyVideo(state.file.name)
+            bunnyVideoId = bunnyResult.videoId
+
+            // TUS アップロード
+            await new Promise<void>((resolve, reject) => {
+                const upload = new tus.Upload(state.file!, {
+                    endpoint: bunnyResult.tusEndpoint,
+                    retryDelays: [0, 1000, 3000, 5000],
+                    headers: {
+                        AuthorizationSignature: bunnyResult.authorizationSignature,
+                        AuthorizationExpire: String(bunnyResult.authorizationExpire),
+                        VideoId: bunnyResult.videoId,
+                        LibraryId: bunnyResult.libraryId,
+                    },
+                    metadata: { filetype: state.file!.type, title: state.file!.name },
+                    onError: (error) => reject(error),
+                    onProgress: (bytesUploaded, bytesTotal) => {
+                        updateState(itemId, { progress: Math.round((bytesUploaded / bytesTotal) * 100) })
+                    },
+                    onSuccess: () => resolve(),
+                })
+                upload.findPreviousUploads().then((previousUploads) => {
+                    if (previousUploads.length > 0) {
+                        upload.resumeFromPreviousUpload(previousUploads[0])
                     }
-                }
-            }
-
-            // 新規ファイルのアップロード実行
-            updateState(itemId, { progress: 90 })
-            await r2Client.send(new PutObjectCommand({
-                Bucket: R2_BUCKET_NAME,
-                Key: key,
-                Body: new Uint8Array(state.arrayBuffer!),
-                ContentType: state.file.type,
-            }))
-
-            updateState(itemId, { progress: 100 })
-
-            console.log('[Upload Debug] Saving submission:', {
-                video_size: state.file.size,
-                video_hash: state.hash,
-                file_name: state.file.name
+                    upload.start()
+                }).catch(() => {
+                    upload.start()
+                })
             })
 
-            const { error: dbError, data: dbData } = await supabase
-                .from('submissions')
-                .insert({
-                    user_id: user.id,
-                    type: 'video' as const,
-                    r2_key: key,
-                    thumbnail_url: state.thumbnail || null,
-                    status: null,
-                    target_date: targetDateStr,
-                    submission_item_id: normalizedItemId,
-                    file_name: state.file.name,
-                    duration: state.duration ? Math.round(state.duration) : null,
-                    is_late: isLate,
-                    video_size: state.file.size,
-                    video_hash: state.hash
-                } as any)
-                .select()
+            // 既存レコードがある場合は replace_submissions RPC でアトミック置換
+            if (existing && existing.length > 0) {
+                const { data: rpcData, error: rpcError } = await supabase.rpc('replace_submissions', {
+                    p_user_id: user.id,
+                    p_target_date: targetDateStr,
+                    p_submission_item_id: normalizedItemId,
+                    p_bunny_video_id: bunnyResult.videoId,
+                    p_video_size: state.file.size,
+                    p_video_hash: state.hash,
+                    p_duration: state.duration ? Math.round(state.duration) : null,
+                    p_thumbnail_url: state.thumbnail || null,
+                    p_file_name: state.file.name,
+                    p_is_late: isLate
+                })
 
-            console.log('[Upload Debug] Database response:', { dbError, dbData })
-
-            if (dbError) {
-                // INSERT 失敗 → アップロード済み R2 オブジェクトを削除（孤立防止）
-                await deleteR2Object(key).catch(e => console.error('R2 cleanup failed:', e))
-                if (dbError.message?.includes('STORAGE_LIMIT_EXCEEDED')) {
-                    updateState(itemId, {
-                        error: 'ストレージが一杯のため、アップロードできません。管理者に連絡してください。',
-                        isUploading: false
-                    })
-                    return
+                if (rpcError) {
+                    // RPC 失敗 → 新しい Bunny 動画を削除（孤立防止）
+                    await deleteBunnyVideo(bunnyResult.videoId).catch(e => console.error('Bunny cleanup failed:', e))
+                    if (rpcError.message?.includes('STORAGE_LIMIT_EXCEEDED')) {
+                        updateState(itemId, {
+                            error: 'ストレージが一杯のため、アップロードできません。管理者に連絡してください。',
+                            isUploading: false
+                        })
+                        return
+                    }
+                    throw new Error('Failed to save submission record')
                 }
-                throw new Error('Failed to save submission record')
+
+                // 旧 Bunny 動画を削除（best-effort）
+                if (rpcData?.[0]?.old_bunny_video_ids) {
+                    for (const oldId of rpcData[0].old_bunny_video_ids) {
+                        await deleteBunnyVideo(oldId).catch(e => console.error('Old video cleanup failed:', e))
+                    }
+                }
+            } else {
+                // 新規 INSERT
+                const { error: dbError } = await supabase
+                    .from('submissions')
+                    .insert({
+                        user_id: user.id,
+                        type: 'video' as const,
+                        bunny_video_id: bunnyResult.videoId,
+                        thumbnail_url: state.thumbnail || null,
+                        status: null,
+                        target_date: targetDateStr,
+                        submission_item_id: normalizedItemId,
+                        file_name: state.file.name,
+                        duration: state.duration ? Math.round(state.duration) : null,
+                        is_late: isLate,
+                        video_size: state.file.size,
+                        video_hash: state.hash
+                    } as any)
+
+                if (dbError) {
+                    await deleteBunnyVideo(bunnyResult.videoId).catch(e => console.error('Bunny cleanup failed:', e))
+                    if (dbError.message?.includes('STORAGE_LIMIT_EXCEEDED')) {
+                        updateState(itemId, {
+                            error: 'ストレージが一杯のため、アップロードできません。管理者に連絡してください。',
+                            isUploading: false
+                        })
+                        return
+                    }
+                    throw new Error('Failed to save submission record')
+                }
             }
 
             updateState(itemId, { success: true, file: null, thumbnail: null })
@@ -242,6 +273,10 @@ export function UploadModal({ targetDate, onClose, onSuccess, items, completedSu
             onSuccess?.()
         } catch (err) {
             console.error('Upload failed:', err)
+            // TUS アップロード成功後の失敗時、Bunny 動画をクリーンアップ
+            if (bunnyVideoId) {
+                await deleteBunnyVideo(bunnyVideoId).catch(e => console.error('Bunny cleanup failed:', e))
+            }
             updateState(itemId, { error: 'アップロードに失敗しました。', isUploading: false })
         } finally {
             updateState(itemId, { isUploading: false })
@@ -276,8 +311,8 @@ export function UploadModal({ targetDate, onClose, onSuccess, items, completedSu
                         )}
                     </div>
                     {state.file && !state.isUploading && !state.success && (
-                        <Button size="sm" onClick={() => handleUpload(itemId)} className="h-8" disabled={!state.hash}>
-                            <Upload className="w-3 h-3 mr-1" /> {!state.hash ? '計算中...' : 'アップロード'}
+                        <Button size="sm" onClick={() => handleUpload(itemId)} className="h-8">
+                            <Upload className="w-3 h-3 mr-1" /> アップロード
                         </Button>
                     )}
                 </div>
@@ -301,7 +336,7 @@ export function UploadModal({ targetDate, onClose, onSuccess, items, completedSu
                             <>
                                 <Film className="h-8 w-8 text-muted-foreground" />
                                 <span className="text-sm font-medium">クリックして動画を選択</span>
-                                <span className="text-[10px] text-muted-foreground">MP4, MOV, WebM / 100MB以内</span>
+                                <span className="text-[10px] text-muted-foreground">MP4, MOV, WebM / 500MB以内</span>
                             </>
                         )}
 

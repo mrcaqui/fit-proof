@@ -23,7 +23,7 @@ import {
     PopoverTrigger,
 } from "@/components/ui/popover"
 import { Progress } from '@/components/ui/progress'
-import { getTotalStorageUsedBytes } from '@/lib/r2'
+import { getTotalStorageUsedBytes } from '@/lib/bunny'
 import { cn } from '@/lib/utils'
 import { format, parseISO, max as dateMax } from 'date-fns'
 import { Settings } from 'lucide-react'
@@ -1554,7 +1554,7 @@ export default function SubmissionSettingsPage() {
                                         </PopoverTrigger>
                                         <PopoverContent className="w-80 text-sm space-y-2">
                                             <p className="text-muted-foreground">
-                                                ストレージ使用量は、全クライアントの動画ファイルサイズの合計（DBに記録された video_size の合計値）から算出しています。動画が削除済み（r2_key が null）のレコードは含みません。実際の R2 ストレージ使用量とは、孤立ファイル等により若干異なる場合があります（孤立ファイルはアプリ起動時に自動クリーンアップされます）。
+                                                ストレージ使用量は、全クライアントの動画ファイルサイズの合計（DBに記録された video_size の合計値）から算出しています。動画が削除済みのレコードは含みません。孤立ファイルはアプリ起動時に自動クリーンアップされます。
                                             </p>
                                             <p className="text-muted-foreground">
                                                 使用量はこのページを開いた時点（またはクライアント切り替え時）に取得されます。最新の値を確認するにはページを再読み込みしてください。
@@ -1588,7 +1588,7 @@ export default function SubmissionSettingsPage() {
                                     <span className="text-sm text-muted-foreground">日</span>
                                 </div>
                                 <p className="text-xs text-muted-foreground">
-                                    この期間を過ぎた動画ファイルは自動的にR2から削除されます。提出記録（日付、ステータス等）はそのまま保持されます。
+                                    この期間を過ぎた動画ファイルは自動的に削除されます。提出記録（日付、ステータス等）はそのまま保持されます。
                                 </p>
                             </div>
 

@@ -113,6 +113,7 @@ create table submissions (
   user_id uuid references profiles(id) not null,
   type text check (type in ('video', 'comment', 'shield')) not null,
   r2_key text,
+  bunny_video_id text,
   thumbnail_url text,
   duration integer,
   comment_text text,

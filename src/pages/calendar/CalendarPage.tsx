@@ -38,7 +38,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { VideoPlayerModal } from "@/components/admin/VideoPlayerModal";
-import { getR2PublicUrl } from "@/lib/r2";
+import { getBunnyVideoUrl } from "@/lib/bunny";
 import { useSubmissionRules } from "@/hooks/useSubmissionRules";
 import { useSubmissionItems } from "@/hooks/useSubmissionItems";
 import { useSwipeable } from "react-swipeable";
@@ -810,7 +810,7 @@ export default function CalendarPage() {
         onAddComment={addAdminComment}
         onDeleteComment={deleteAdminComment}
         onMarkAsRead={markCommentAsRead}
-        onPlay={(key: string) => setSelectedVideo(getR2PublicUrl(key))}
+        onPlay={(key: string) => setSelectedVideo(getBunnyVideoUrl(key))}
         submissionItems={submissionItems}
         onUploadSuccess={() => refetch(true)}
         isViewingOtherUser={isViewingOtherUser}

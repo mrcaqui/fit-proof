@@ -331,8 +331,9 @@ export function SwipeableWorkoutView({
                       }
 
                       // Duration一致チェック（Hashは違うが時間が同じ = リサイズされた可能性）
+                      // null安全: 両方のハッシュが非nullで一致する場合のみスキップ
                       if (s.duration && s.duration > 0) {
-                        const durationMatch = allWorkouts.find(w => w.id !== s.id && w.video_hash !== s.video_hash && w.duration === s.duration)
+                        const durationMatch = allWorkouts.find(w => w.id !== s.id && w.duration === s.duration && !(w.video_hash != null && s.video_hash != null && w.video_hash === s.video_hash))
                         if (durationMatch) {
                           return {
                             duplicateType: 'duration' as const,

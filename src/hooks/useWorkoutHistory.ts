@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import { Database } from '@/types/database.types'
 import { useAuth } from '@/context/AuthContext'
-import { deleteR2Object } from '@/lib/r2'
+import { deleteBunnyVideo } from '@/lib/bunny'
 
 type Submission = Database['public']['Tables']['submissions']['Row'] & {
     admin_comments?: Database['public']['Tables']['admin_comments']['Row'][]
@@ -63,7 +63,7 @@ export function useWorkoutHistory(targetUserId?: string) {
         }
     }, [user?.id, targetUserId])
 
-    const deleteWorkout = async (id: number, r2Key: string | null) => {
+    const deleteWorkout = async (id: number, _r2Key: string | null) => {
         try {
             // 現在の投稿を取得（削除前に減算用データを取得）
             const targetWorkout = workouts.find(w => w.id === id)
@@ -72,9 +72,10 @@ export function useWorkoutHistory(targetUserId?: string) {
             const isApproved = targetWorkout?.status === 'success'
             const isRevival = (targetWorkout as any)?.is_revival === true
 
-            // 1. Delete from R2 if key exists
-            if (r2Key) {
-                await deleteR2Object(r2Key)
+            // 1. Delete Bunny video if exists
+            const bunnyId = targetWorkout?.bunny_video_id
+            if (bunnyId) {
+                await deleteBunnyVideo(bunnyId)
             }
 
             // 2. Delete from Supabase

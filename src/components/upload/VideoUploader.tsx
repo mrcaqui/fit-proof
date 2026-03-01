@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react'
-import { PutObjectCommand } from '@aws-sdk/client-s3'
-import { r2Client, R2_BUCKET_NAME } from '@/lib/r2'
+import * as tus from 'tus-js-client'
+import { createBunnyVideo, deleteBunnyVideo } from '@/lib/bunny'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/context/AuthContext'
 import { generateThumbnail } from '@/utils/thumbnail'
@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
 import { Upload, CheckCircle, AlertCircle, Film } from 'lucide-react'
 
-const MAX_FILE_SIZE = 100 * 1024 * 1024 // 100MB
+const MAX_FILE_SIZE = 500 * 1024 * 1024 // 500MB
 const ALLOWED_TYPES = ['video/mp4', 'video/quicktime', 'video/webm']
 
 export function VideoUploader() {
@@ -37,7 +37,7 @@ export function VideoUploader() {
 
         // Validate file size
         if (selectedFile.size > MAX_FILE_SIZE) {
-            setError('ファイルサイズが大きすぎます。100MB以下のファイルを選択してください。')
+            setError('ファイルサイズが大きすぎます。500MB以下のファイルを選択してください。')
             return
         }
 
@@ -49,7 +49,6 @@ export function VideoUploader() {
             setThumbnail(thumbUrl)
         } catch (err) {
             console.error('Thumbnail generation failed:', err)
-            // Non-fatal, continue without thumbnail
         }
     }
 
@@ -60,26 +59,40 @@ export function VideoUploader() {
         setProgress(0)
         setError(null)
 
+        let bunnyVideoId: string | null = null
+
         try {
-            const timestamp = Date.now()
-            const fileExtension = file.name.split('.').pop()
-            const key = `uploads/${user.id}/${timestamp}.${fileExtension}`
+            // Bunny にビデオ作成 + TUS 認証情報取得
+            const bunnyResult = await createBunnyVideo(file.name)
+            bunnyVideoId = bunnyResult.videoId
 
-            // Convert File to ArrayBuffer for AWS SDK v3 compatibility
-            const arrayBuffer = await file.arrayBuffer()
-
-            // Upload to R2
-            const command = new PutObjectCommand({
-                Bucket: R2_BUCKET_NAME,
-                Key: key,
-                Body: new Uint8Array(arrayBuffer),
-                ContentType: file.type,
+            // TUS アップロード
+            await new Promise<void>((resolve, reject) => {
+                const upload = new tus.Upload(file, {
+                    endpoint: bunnyResult.tusEndpoint,
+                    retryDelays: [0, 1000, 3000, 5000],
+                    headers: {
+                        AuthorizationSignature: bunnyResult.authorizationSignature,
+                        AuthorizationExpire: String(bunnyResult.authorizationExpire),
+                        VideoId: bunnyResult.videoId,
+                        LibraryId: bunnyResult.libraryId,
+                    },
+                    metadata: { filetype: file.type, title: file.name },
+                    onError: (error) => reject(error),
+                    onProgress: (bytesUploaded, bytesTotal) => {
+                        setProgress(Math.round((bytesUploaded / bytesTotal) * 100))
+                    },
+                    onSuccess: () => resolve(),
+                })
+                upload.findPreviousUploads().then((previousUploads) => {
+                    if (previousUploads.length > 0) {
+                        upload.resumeFromPreviousUpload(previousUploads[0])
+                    }
+                    upload.start()
+                }).catch(() => {
+                    upload.start()
+                })
             })
-
-            console.log('Uploading to R2...', { bucket: R2_BUCKET_NAME, key })
-            await r2Client.send(command)
-            console.log('R2 upload successful')
-            setProgress(100)
 
             // Create submission record in Supabase
             const { error: dbError } = await supabase
@@ -87,13 +100,13 @@ export function VideoUploader() {
                 .insert({
                     user_id: user.id,
                     type: 'video' as const,
-                    r2_key: key,
+                    bunny_video_id: bunnyResult.videoId,
                     thumbnail_url: thumbnail || null,
                     status: 'success' as const,
                 } as any)
 
             if (dbError) {
-                console.error('Supabase insert error:', dbError)
+                await deleteBunnyVideo(bunnyResult.videoId).catch(e => console.error('Bunny cleanup failed:', e))
                 throw new Error('Failed to save submission record')
             }
 
@@ -105,6 +118,9 @@ export function VideoUploader() {
             }
         } catch (err) {
             console.error('Upload failed:', err)
+            if (bunnyVideoId) {
+                await deleteBunnyVideo(bunnyVideoId).catch(e => console.error('Bunny cleanup failed:', e))
+            }
             setError('アップロードに失敗しました。もう一度お試しください。')
         } finally {
             setUploading(false)
@@ -130,7 +146,7 @@ export function VideoUploader() {
                 >
                     <Film className="h-12 w-12 text-muted-foreground" />
                     <span className="text-sm text-muted-foreground">
-                        クリックして動画を選択（MP4, MOV, WebM / 最大100MB）
+                        クリックして動画を選択（MP4, MOV, WebM / 最大500MB）
                     </span>
                 </label>
             </div>

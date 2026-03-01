@@ -37,7 +37,7 @@ import {
 import { useAuth } from "@/context/AuthContext"
 import { Plus, Pencil, Trash2, Loader2, AlertTriangle } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
-import { deleteR2Object, deleteR2ObjectsByPrefix } from "@/lib/r2"
+import { deleteBunnyVideo } from "@/lib/bunny"
 
 interface AuthUser {
     email: string
@@ -130,24 +130,14 @@ export default function UsersPage() {
             if (error) throw error
 
             const result = data?.[0] || data
-            const targetUserId: string | null = result?.target_user_id
-            const r2Keys: string[] = (result?.r2_keys || []).filter(Boolean)
+            const bunnyVideoIds: string[] = (result?.bunny_video_ids || result?.r2_keys || []).filter(Boolean)
 
-            // DB上のr2_keyに記録されている動画ファイルを削除
-            for (const key of r2Keys) {
+            // Bunny 動画を削除
+            for (const videoId of bunnyVideoIds) {
                 try {
-                    await deleteR2Object(key)
+                    await deleteBunnyVideo(videoId)
                 } catch (e) {
-                    console.warn(`Failed to delete R2 object: ${key}`, e)
-                }
-            }
-
-            // R2のuploads/${userId}/プレフィックスで残存オブジェクトも一括削除
-            if (targetUserId) {
-                try {
-                    await deleteR2ObjectsByPrefix(`uploads/${targetUserId}/`)
-                } catch (e) {
-                    console.warn(`Failed to delete R2 objects by prefix for user: ${targetUserId}`, e)
+                    console.warn(`Failed to delete Bunny video: ${videoId}`, e)
                 }
             }
 
@@ -378,7 +368,7 @@ export default function UsersPage() {
                                 </p>
                                 <ul className="list-disc pl-5 space-y-1 text-sm">
                                     <li>投稿データ（全ての提出履歴）</li>
-                                    <li>動画ファイル（Cloudflare R2上のファイル）</li>
+                                    <li>動画ファイル（Bunny Stream上のファイル）</li>
                                     <li>投稿設定（ルール・投稿項目・定休日設定）</li>
                                     <li>ゲーミフィケーションデータ（ストリーク・シールド等）</li>
                                     <li>管理者コメント</li>

@@ -134,7 +134,7 @@ export function WorkoutCard({ submission, onDelete, isAdmin, onPlay, itemName, o
 
         setIsDeleting(true)
         try {
-            await onDelete(submission.id, submission.r2_key)
+            await onDelete(submission.id, submission.r2_key ?? null)
         } finally {
             setIsDeleting(false)
         }
@@ -201,7 +201,7 @@ export function WorkoutCard({ submission, onDelete, isAdmin, onPlay, itemName, o
                     {/* Thumbnail Area (Left) - 高さは右側コンテンツに追従 */}
                     <div
                         className="relative w-24 sm:w-28 shrink-0 bg-muted cursor-pointer group/thumb overflow-hidden"
-                        onClick={() => submission.r2_key && onPlay?.(submission.r2_key)}
+                        onClick={() => (submission.bunny_video_id || submission.r2_key) && onPlay?.(submission.bunny_video_id || submission.r2_key || '')}
                     >
                         {submission.thumbnail_url ? (
                             <img

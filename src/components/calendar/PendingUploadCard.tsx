@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react'
 import { Database } from '@/types/database.types'
-import { PutObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3'
-import { r2Client, R2_BUCKET_NAME, checkR2StorageAvailable, deleteR2Object } from '@/lib/r2'
+import * as tus from 'tus-js-client'
+import { createBunnyVideo, deleteBunnyVideo, checkStorageAvailable } from '@/lib/bunny'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/context/AuthContext'
 import { generateThumbnail } from '@/utils/thumbnail'
@@ -11,7 +11,8 @@ import { Progress } from '@/components/ui/progress'
 import { Upload, Film, AlertCircle, X } from 'lucide-react'
 import { format } from 'date-fns'
 
-const MAX_FILE_SIZE = 100 * 1024 * 1024 // 100MB
+const MAX_FILE_SIZE = 500 * 1024 * 1024 // 500MB
+const HASH_THRESHOLD = 100 * 1024 * 1024 // 100MB超はハッシュスキップ
 const ALLOWED_TYPES = ['video/mp4', 'video/quicktime', 'video/webm']
 
 type SubmissionItem = Database['public']['Tables']['submission_items']['Row']
@@ -35,7 +36,6 @@ export function PendingUploadCard({ item, targetDate, onSuccess, isLate = false 
         success: boolean
         isUploading: boolean
         hash: string | null
-        arrayBuffer: ArrayBuffer | null
     }>({
         file: null,
         thumbnail: null,
@@ -45,7 +45,6 @@ export function PendingUploadCard({ item, targetDate, onSuccess, isLate = false 
         success: false,
         isUploading: false,
         hash: null,
-        arrayBuffer: null
     })
 
     const updateState = (newState: Partial<typeof state>) => {
@@ -70,12 +69,11 @@ export function PendingUploadCard({ item, targetDate, onSuccess, isLate = false 
         return `${mins}:${secs.toString().padStart(2, '0')}`
     }
 
-    const calculateHash = async (file: File): Promise<{ hash: string; arrayBuffer: ArrayBuffer }> => {
+    const calculateHash = async (file: File): Promise<string> => {
         const arrayBuffer = await file.arrayBuffer()
         const hashBuffer = await crypto.subtle.digest('SHA-256', arrayBuffer)
         const hashArray = Array.from(new Uint8Array(hashBuffer))
-        const hash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
-        return { hash, arrayBuffer }
+        return hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
     }
 
     const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -90,26 +88,34 @@ export function PendingUploadCard({ item, targetDate, onSuccess, isLate = false 
         }
 
         if (selectedFile.size > MAX_FILE_SIZE) {
-            updateState({ error: 'ファイルサイズが大きすぎます。100MB以下のファイルを選択してください。' })
+            updateState({ error: 'ファイルサイズが大きすぎます。500MB以下のファイルを選択してください。' })
             return
         }
 
         updateState({ file: selectedFile, thumbnail: null, duration: null, error: null, success: false })
 
         try {
-            const [thumbUrl, duration, hashResult] = await Promise.all([
+            const tasks: Promise<any>[] = [
                 generateThumbnail(selectedFile).catch(() => null),
                 getVideoDuration(selectedFile).catch(() => null),
-                calculateHash(selectedFile).catch(err => {
-                    console.error('Hash calculation failed:', err)
-                    return null
-                })
-            ])
+            ]
+
+            if (selectedFile.size <= HASH_THRESHOLD) {
+                tasks.push(
+                    calculateHash(selectedFile).catch(err => {
+                        console.error('Hash calculation failed:', err)
+                        return null
+                    })
+                )
+            } else {
+                tasks.push(Promise.resolve(null))
+            }
+
+            const [thumbUrl, duration, hash] = await Promise.all(tasks)
             updateState({
                 thumbnail: thumbUrl,
                 duration,
-                hash: hashResult?.hash || null,
-                arrayBuffer: hashResult?.arrayBuffer || null
+                hash: hash || null,
             })
         } catch (err) {
             console.error('Metadata extraction failed:', err)
@@ -128,27 +134,25 @@ export function PendingUploadCard({ item, targetDate, onSuccess, isLate = false 
 
         updateState({ isUploading: true, progress: 0, error: null })
 
+        let bunnyVideoId: string | null = null
+
         try {
-            const timestamp = Date.now()
-            const fileExtension = state.file.name.split('.').pop()
-            const key = `uploads/${user.id}/${timestamp}.${fileExtension}`
             const targetDateStr = format(targetDate, 'yyyy-MM-dd')
 
-            // 既存のレコードを検索（video_size も取得して差分チェックに使う）
+            // 既存のレコードを検索
             const { data: existing } = await supabase
                 .from('submissions')
-                .select('id, r2_key, video_size')
+                .select('id, bunny_video_id, video_size')
                 .match({
                     user_id: user.id,
                     target_date: targetDateStr,
                     submission_item_id: item.id
-                }) as { data: { id: number, r2_key: string | null, video_size: number | null }[] | null }
+                }) as { data: { id: number, bunny_video_id: string | null, video_size: number | null }[] | null }
 
-            // 全件合算（複数レコード時に差分を正しく計算するため）
             const existingTotalSize = (existing || []).reduce((sum, r) => sum + (r.video_size || 0), 0)
 
-            // ① 早期 UX チェック（非原子的・先行フィードバック用）
-            const storageCheck = await checkR2StorageAvailable(state.file.size, existingTotalSize)
+            // 早期 UX チェック
+            const storageCheck = await checkStorageAvailable(state.file.size, existingTotalSize)
             if (!storageCheck.available) {
                 updateState({
                     error: 'ストレージが一杯のため、アップロードできません。管理者に連絡してください。',
@@ -157,62 +161,100 @@ export function PendingUploadCard({ item, targetDate, onSuccess, isLate = false 
                 return
             }
 
-            // 既存レコードがあれば削除
+            // Bunny にビデオ作成 + TUS 認証情報取得
+            const bunnyResult = await createBunnyVideo(state.file.name)
+            bunnyVideoId = bunnyResult.videoId
+
+            // TUS アップロード
+            await new Promise<void>((resolve, reject) => {
+                const upload = new tus.Upload(state.file!, {
+                    endpoint: bunnyResult.tusEndpoint,
+                    retryDelays: [0, 1000, 3000, 5000],
+                    headers: {
+                        AuthorizationSignature: bunnyResult.authorizationSignature,
+                        AuthorizationExpire: String(bunnyResult.authorizationExpire),
+                        VideoId: bunnyResult.videoId,
+                        LibraryId: bunnyResult.libraryId,
+                    },
+                    metadata: { filetype: state.file!.type, title: state.file!.name },
+                    onError: (error) => reject(error),
+                    onProgress: (bytesUploaded, bytesTotal) => {
+                        updateState({ progress: Math.round((bytesUploaded / bytesTotal) * 100) })
+                    },
+                    onSuccess: () => resolve(),
+                })
+                upload.findPreviousUploads().then((previousUploads) => {
+                    if (previousUploads.length > 0) {
+                        upload.resumeFromPreviousUpload(previousUploads[0])
+                    }
+                    upload.start()
+                }).catch(() => {
+                    upload.start()
+                })
+            })
+
+            // 既存レコードがある場合は replace_submissions RPC でアトミック置換
             if (existing && existing.length > 0) {
-                for (const sub of existing) {
-                    await supabase.from('submissions').delete().eq('id', sub.id)
-                    if (sub.r2_key) {
-                        try {
-                            await r2Client.send(new DeleteObjectCommand({
-                                Bucket: R2_BUCKET_NAME,
-                                Key: sub.r2_key
-                            }))
-                        } catch (e) {
-                            console.error('Failed to delete old R2 object:', e)
-                        }
+                const { data: rpcData, error: rpcError } = await supabase.rpc('replace_submissions', {
+                    p_user_id: user.id,
+                    p_target_date: targetDateStr,
+                    p_submission_item_id: item.id,
+                    p_bunny_video_id: bunnyResult.videoId,
+                    p_video_size: state.file.size,
+                    p_video_hash: state.hash,
+                    p_duration: state.duration ? Math.round(state.duration) : null,
+                    p_thumbnail_url: state.thumbnail || null,
+                    p_file_name: state.file.name,
+                    p_is_late: isLate
+                })
+
+                if (rpcError) {
+                    await deleteBunnyVideo(bunnyResult.videoId).catch(e => console.error('Bunny cleanup failed:', e))
+                    if (rpcError.message?.includes('STORAGE_LIMIT_EXCEEDED')) {
+                        updateState({
+                            error: 'ストレージが一杯のため、アップロードできません。管理者に連絡してください。',
+                            isUploading: false
+                        })
+                        return
+                    }
+                    throw new Error('Failed to save submission record')
+                }
+
+                if (rpcData?.[0]?.old_bunny_video_ids) {
+                    for (const oldId of rpcData[0].old_bunny_video_ids) {
+                        await deleteBunnyVideo(oldId).catch(e => console.error('Old video cleanup failed:', e))
                     }
                 }
-            }
+            } else {
+                // 新規 INSERT
+                const { error: dbError } = await supabase
+                    .from('submissions')
+                    .insert({
+                        user_id: user.id,
+                        type: 'video' as const,
+                        bunny_video_id: bunnyResult.videoId,
+                        thumbnail_url: state.thumbnail || null,
+                        status: null,
+                        target_date: targetDateStr,
+                        submission_item_id: item.id,
+                        file_name: state.file.name,
+                        duration: state.duration ? Math.round(state.duration) : null,
+                        is_late: isLate,
+                        video_size: state.file.size,
+                        video_hash: state.hash
+                    } as any)
 
-            // アップロード実行
-            updateState({ progress: 90 })
-            await r2Client.send(new PutObjectCommand({
-                Bucket: R2_BUCKET_NAME,
-                Key: key,
-                Body: new Uint8Array(state.arrayBuffer!),
-                ContentType: state.file.type,
-            }))
-
-            updateState({ progress: 100 })
-
-            const { error: dbError } = await supabase
-                .from('submissions')
-                .insert({
-                    user_id: user.id,
-                    type: 'video' as const,
-                    r2_key: key,
-                    thumbnail_url: state.thumbnail || null,
-                    status: null,
-                    target_date: targetDateStr,
-                    submission_item_id: item.id,
-                    file_name: state.file.name,
-                    duration: state.duration ? Math.round(state.duration) : null,
-                    is_late: isLate,
-                    video_size: state.file.size,
-                    video_hash: state.hash
-                } as any)
-
-            if (dbError) {
-                // INSERT 失敗 → アップロード済み R2 オブジェクトを削除（孤立防止）
-                await deleteR2Object(key).catch(e => console.error('R2 cleanup failed:', e))
-                if (dbError.message?.includes('STORAGE_LIMIT_EXCEEDED')) {
-                    updateState({
-                        error: 'ストレージが一杯のため、アップロードできません。管理者に連絡してください。',
-                        isUploading: false
-                    })
-                    return
+                if (dbError) {
+                    await deleteBunnyVideo(bunnyResult.videoId).catch(e => console.error('Bunny cleanup failed:', e))
+                    if (dbError.message?.includes('STORAGE_LIMIT_EXCEEDED')) {
+                        updateState({
+                            error: 'ストレージが一杯のため、アップロードできません。管理者に連絡してください。',
+                            isUploading: false
+                        })
+                        return
+                    }
+                    throw new Error('Failed to save submission record')
                 }
-                throw new Error('Failed to save submission record')
             }
 
             updateState({ success: true, file: null, thumbnail: null })
@@ -222,6 +264,9 @@ export function PendingUploadCard({ item, targetDate, onSuccess, isLate = false 
             onSuccess?.()
         } catch (err) {
             console.error('Upload failed:', err)
+            if (bunnyVideoId) {
+                await deleteBunnyVideo(bunnyVideoId).catch(e => console.error('Bunny cleanup failed:', e))
+            }
             updateState({ error: 'アップロードに失敗しました。', isUploading: false })
         } finally {
             updateState({ isUploading: false })
@@ -251,8 +296,8 @@ export function PendingUploadCard({ item, targetDate, onSuccess, isLate = false 
                                 >
                                     <X className="w-4 h-4" />
                                 </Button>
-                                <Button size="sm" onClick={handleUpload} className="h-7 text-xs" disabled={!state.hash}>
-                                    <Upload className="w-3 h-3 mr-1" /> {!state.hash ? '計算中...' : 'アップロード'}
+                                <Button size="sm" onClick={handleUpload} className="h-7 text-xs">
+                                    <Upload className="w-3 h-3 mr-1" /> アップロード
                                 </Button>
                             </>
                         )}
@@ -279,7 +324,7 @@ export function PendingUploadCard({ item, targetDate, onSuccess, isLate = false 
                                 <Film className="h-6 w-6 text-muted-foreground shrink-0" />
                                 <div className="flex flex-col gap-0.5">
                                     <span className="text-xs font-medium">クリックして動画を選択</span>
-                                    <span className="text-[9px] text-muted-foreground">MP4, MOV, WebM / 100MB以内</span>
+                                    <span className="text-[9px] text-muted-foreground">MP4, MOV, WebM / 500MB以内</span>
                                 </div>
                             </>
                         )}
