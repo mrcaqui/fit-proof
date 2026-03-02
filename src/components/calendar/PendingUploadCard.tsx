@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react'
 import { Database } from '@/types/database.types'
 import * as tus from 'tus-js-client'
-import { createBunnyVideo, deleteBunnyVideo, checkStorageAvailable } from '@/lib/bunny'
+import { createBunnyVideo, deleteBunnyVideo, checkStorageAvailable, waitForBunnyProcessing } from '@/lib/bunny'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/context/AuthContext'
 import { generateThumbnail } from '@/utils/thumbnail'
@@ -36,6 +36,7 @@ export function PendingUploadCard({ item, targetDate, onSuccess, isLate = false 
         success: boolean
         isUploading: boolean
         hash: string | null
+        phase: 'uploading' | 'verifying' | null
     }>({
         file: null,
         thumbnail: null,
@@ -45,6 +46,7 @@ export function PendingUploadCard({ item, targetDate, onSuccess, isLate = false 
         success: false,
         isUploading: false,
         hash: null,
+        phase: null,
     })
 
     const updateState = (newState: Partial<typeof state>) => {
@@ -132,7 +134,7 @@ export function PendingUploadCard({ item, targetDate, onSuccess, isLate = false 
     const handleUpload = async () => {
         if (!state.file || !user) return
 
-        updateState({ isUploading: true, progress: 0, error: null })
+        updateState({ isUploading: true, progress: 0, error: null, phase: 'uploading' })
 
         let bunnyVideoId: string | null = null
 
@@ -177,6 +179,7 @@ export function PendingUploadCard({ item, targetDate, onSuccess, isLate = false 
                         LibraryId: bunnyResult.libraryId,
                     },
                     metadata: { filetype: state.file!.type, title: state.file!.name },
+                    removeFingerprintOnSuccess: true,
                     onError: (error) => reject(error),
                     onProgress: (bytesUploaded, bytesTotal) => {
                         updateState({ progress: Math.round((bytesUploaded / bytesTotal) * 100) })
@@ -192,6 +195,31 @@ export function PendingUploadCard({ item, targetDate, onSuccess, isLate = false 
                     upload.start()
                 })
             })
+
+            // Bunny側の受領確認
+            updateState({ progress: 100, phase: 'verifying' })
+
+            const processingResult = await waitForBunnyProcessing(bunnyResult.videoId, {
+                intervalMs: 2500,
+                timeoutMs: 60000,
+            })
+
+            if (!processingResult.success) {
+                // status -1 はステータス取得の連続失敗（一時的障害の可能性）→ 動画は削除せず残す
+                if (processingResult.status !== -1) {
+                    await deleteBunnyVideo(bunnyResult.videoId).catch(e =>
+                        console.error('Bunny cleanup after processing failure:', e)
+                    )
+                    bunnyVideoId = null
+                }
+                const statusMsg = processingResult.status === 5
+                    ? 'Bunny側でエラーが発生しました。再度お試しください。'
+                    : processingResult.status === 6
+                    ? 'アップロードに失敗しました。再度お試しください。'
+                    : 'アップロードの確認がタイムアウトしました。再度お試しください。'
+                updateState({ error: statusMsg, isUploading: false, phase: null })
+                return
+            }
 
             // 既存レコードがある場合は replace_submissions RPC でアトミック置換
             if (existing && existing.length > 0) {
@@ -356,8 +384,18 @@ export function PendingUploadCard({ item, targetDate, onSuccess, isLate = false 
 
                     {state.isUploading && (
                         <div className="absolute inset-0 bg-background/80 flex flex-col items-center justify-center p-3 rounded-lg z-10 backdrop-blur-sm">
-                            <Progress value={state.progress} className="w-full h-1.5 mb-1.5" />
-                            <span className="text-[10px] font-medium animate-pulse">アップロード中...</span>
+                            {state.phase === 'verifying' ? (
+                                <>
+                                    <div className="h-6 w-6 rounded-full border-2 border-primary/30
+                                                    border-t-primary animate-spin mb-1.5" />
+                                    <span className="text-[10px] font-medium animate-pulse">処理を確認中...</span>
+                                </>
+                            ) : (
+                                <>
+                                    <Progress value={state.progress} className="w-full h-1.5 mb-1.5" />
+                                    <span className="text-[10px] font-medium animate-pulse">アップロード中...</span>
+                                </>
+                            )}
                         </div>
                     )}
                 </div>

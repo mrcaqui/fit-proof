@@ -1,7 +1,5 @@
 import { supabase } from '@/lib/supabase'
 
-export const BUNNY_RESOLUTION = '480p'  // 変更はここだけ
-
 export interface BunnyUploadCredentials {
     videoId: string
     libraryId: string
@@ -33,7 +31,7 @@ export function getBunnyVideoUrl(videoId: string): string {
     if (!hostname) {
         console.error('[bunny] VITE_BUNNY_CDN_HOSTNAME is not set. Video playback will fail.')
     }
-    return `https://${hostname}/${videoId}/play_${BUNNY_RESOLUTION}.mp4`
+    return `https://${hostname}/${videoId}/playlist.m3u8`
 }
 
 /**
@@ -48,6 +46,74 @@ export async function deleteBunnyVideo(videoId: string): Promise<void> {
     if (error) {
         throw new Error(`Bunny video deletion failed: ${error.message}`)
     }
+}
+
+/**
+ * Bunny API 経由で動画のステータスを取得（Edge Function 経由）
+ * 戻り値: 0=Created, 1=Uploaded, 2=Processing, 3=Transcoding, 4=Finished, 5=Error, 6=UploadFailed
+ * 一時的なネットワーク障害時は null を返す（throwしない）
+ */
+export async function checkBunnyVideoStatus(videoId: string): Promise<number | null> {
+    try {
+        const { data, error } = await supabase.functions.invoke('bunny-create-video', {
+            body: { action: 'status', videoId },
+        })
+        if (error) {
+            console.error('[bunny] Status check error:', error.message)
+            return null
+        }
+        return (data as { status: number }).status
+    } catch (e) {
+        console.error('[bunny] Status check network error:', e)
+        return null
+    }
+}
+
+/**
+ * Bunny側で動画が Processing 以上になるまでポーリングで待機。
+ * 一時的なステータス取得失敗はリトライし、連続 MAX_CONSECUTIVE_FAILURES 回失敗で中断。
+ */
+export async function waitForBunnyProcessing(
+    videoId: string,
+    options: {
+        intervalMs?: number
+        timeoutMs?: number
+        onStatusChange?: (status: number) => void
+    } = {}
+): Promise<{ success: boolean; status: number }> {
+    const { intervalMs = 2500, timeoutMs = 60000, onStatusChange } = options
+    const MAX_CONSECUTIVE_FAILURES = 5
+    const startTime = Date.now()
+    let consecutiveFailures = 0
+
+    while (Date.now() - startTime < timeoutMs) {
+        const status = await checkBunnyVideoStatus(videoId)
+
+        if (status === null) {
+            consecutiveFailures++
+            if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+                return { success: false, status: -1 }
+            }
+            await new Promise(resolve => setTimeout(resolve, intervalMs))
+            continue
+        }
+
+        consecutiveFailures = 0
+        onStatusChange?.(status)
+
+        if (status >= 2 && status <= 4) {
+            return { success: true, status }
+        }
+        if (status === 5 || status === 6) {
+            return { success: false, status }
+        }
+
+        await new Promise(resolve => setTimeout(resolve, intervalMs))
+    }
+
+    const finalStatus = await checkBunnyVideoStatus(videoId)
+    if (finalStatus === null) return { success: false, status: -1 }
+    return { success: finalStatus >= 2 && finalStatus <= 4, status: finalStatus }
 }
 
 const STORAGE_LIMIT = 10 * 1024 * 1024 * 1024 // 10GB

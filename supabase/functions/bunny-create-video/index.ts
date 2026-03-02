@@ -78,6 +78,36 @@ Deno.serve(async (req) => {
             })
         }
 
+        if (action === 'status') {
+            const videoId = body.videoId
+            if (!videoId) {
+                return new Response(JSON.stringify({ error: 'Missing videoId' }), {
+                    status: 400,
+                    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+                })
+            }
+
+            const statusRes = await fetch(
+                `https://video.bunnycdn.com/library/${BUNNY_STREAM_LIBRARY_ID}/videos/${videoId}`,
+                {
+                    method: 'GET',
+                    headers: { AccessKey: BUNNY_STREAM_API_KEY },
+                }
+            )
+
+            if (!statusRes.ok) {
+                const errText = await statusRes.text()
+                throw new Error(`Bunny status check failed: ${statusRes.status} ${errText}`)
+            }
+
+            const videoData = await statusRes.json()
+
+            return new Response(
+                JSON.stringify({ status: videoData.status }),
+                { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            )
+        }
+
         // action === 'create': ビデオ作成 + TUS 認証情報返却
         const title = body.title || 'untitled'
 

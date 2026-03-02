@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { Database } from "@/types/database.types"
 import * as tus from 'tus-js-client'
-import { createBunnyVideo, deleteBunnyVideo, checkStorageAvailable } from '@/lib/bunny'
+import { createBunnyVideo, deleteBunnyVideo, checkStorageAvailable, waitForBunnyProcessing } from '@/lib/bunny'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/context/AuthContext'
 import { generateThumbnail } from '@/utils/thumbnail'
@@ -35,6 +35,7 @@ export function UploadModal({ targetDate, onClose, onSuccess, items, completedSu
         success: boolean,
         isUploading: boolean,
         hash: string | null,
+        phase: 'uploading' | 'verifying' | null,
     }>>({})
 
     const fileInputRefs = useRef<Record<number | string, HTMLInputElement | null>>({})
@@ -51,7 +52,7 @@ export function UploadModal({ targetDate, onClose, onSuccess, items, completedSu
     const updateState = (id: number | string, newState: Partial<typeof uploadingState[number]>) => {
         setUploadingState(prev => ({
             ...prev,
-            [id]: { ...(prev[id] || { file: null, thumbnail: null, duration: null, progress: 0, error: null, success: false, isUploading: false, hash: null }), ...newState }
+            [id]: { ...(prev[id] || { file: null, thumbnail: null, duration: null, progress: 0, error: null, success: false, isUploading: false, hash: null, phase: null }), ...newState }
         }))
     }
 
@@ -138,7 +139,7 @@ export function UploadModal({ targetDate, onClose, onSuccess, items, completedSu
         const state = uploadingState[itemId]
         if (!state?.file || !user) return
 
-        updateState(itemId, { isUploading: true, progress: 0, error: null })
+        updateState(itemId, { isUploading: true, progress: 0, error: null, phase: 'uploading' })
 
         let bunnyVideoId: string | null = null
 
@@ -184,6 +185,7 @@ export function UploadModal({ targetDate, onClose, onSuccess, items, completedSu
                         LibraryId: bunnyResult.libraryId,
                     },
                     metadata: { filetype: state.file!.type, title: state.file!.name },
+                    removeFingerprintOnSuccess: true,
                     onError: (error) => reject(error),
                     onProgress: (bytesUploaded, bytesTotal) => {
                         updateState(itemId, { progress: Math.round((bytesUploaded / bytesTotal) * 100) })
@@ -199,6 +201,30 @@ export function UploadModal({ targetDate, onClose, onSuccess, items, completedSu
                     upload.start()
                 })
             })
+
+            // Bunny側の受領確認
+            updateState(itemId, { progress: 100, phase: 'verifying' })
+
+            const processingResult = await waitForBunnyProcessing(bunnyResult.videoId, {
+                intervalMs: 2500,
+                timeoutMs: 60000,
+            })
+
+            if (!processingResult.success) {
+                if (processingResult.status !== -1) {
+                    await deleteBunnyVideo(bunnyResult.videoId).catch(e =>
+                        console.error('Bunny cleanup after processing failure:', e)
+                    )
+                    bunnyVideoId = null
+                }
+                const statusMsg = processingResult.status === 5
+                    ? 'Bunny側でエラーが発生しました。再度お試しください。'
+                    : processingResult.status === 6
+                    ? 'アップロードに失敗しました。再度お試しください。'
+                    : 'アップロードの確認がタイムアウトしました。再度お試しください。'
+                updateState(itemId, { error: statusMsg, isUploading: false, phase: null })
+                return
+            }
 
             // 既存レコードがある場合は replace_submissions RPC でアトミック置換
             if (existing && existing.length > 0) {
@@ -376,8 +402,18 @@ export function UploadModal({ targetDate, onClose, onSuccess, items, completedSu
 
                     {state.isUploading && (
                         <div className="absolute inset-0 bg-background/80 flex flex-col items-center justify-center p-4 rounded-lg z-10 backdrop-blur-sm">
-                            <Progress value={state.progress} className="w-full h-2 mb-2" />
-                            <span className="text-xs font-medium animate-pulse">アップロード中...</span>
+                            {state.phase === 'verifying' ? (
+                                <>
+                                    <div className="h-8 w-8 rounded-full border-3 border-primary/30
+                                                    border-t-primary animate-spin mb-2" />
+                                    <span className="text-xs font-medium animate-pulse">処理を確認中...</span>
+                                </>
+                            ) : (
+                                <>
+                                    <Progress value={state.progress} className="w-full h-2 mb-2" />
+                                    <span className="text-xs font-medium animate-pulse">アップロード中...</span>
+                                </>
+                            )}
                         </div>
                     )}
 

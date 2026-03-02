@@ -47,6 +47,7 @@ export function VideoPlayerModal({ videoUrl, onClose }: VideoPlayerModalProps) {
     const [skipFeedback, setSkipFeedback] = useState<{ side: 'left' | 'right'; key: number } | null>(null)
     const [isLoading, setIsLoading] = useState(true)
     const [hasError, setHasError] = useState(false)
+    const hlsRef = useRef<any>(null)
 
     const [playbackRate, setPlaybackRate] = useState(() => {
         const stored = localStorage.getItem(LS_SPEED)
@@ -109,6 +110,58 @@ export function VideoPlayerModal({ videoUrl, onClose }: VideoPlayerModalProps) {
             return () => video.removeEventListener('loadedmetadata', applySettings)
         }
     }, [videoUrl]) // eslint-disable-line react-hooks/exhaustive-deps
+
+    // --- HLS initialization ---
+    useEffect(() => {
+        const video = videoRef.current
+        if (!video || !videoUrl) return
+
+        let hls: any = null
+        let cancelled = false
+
+        const init = async () => {
+            // 前回のHLSインスタンスを破棄
+            if (hlsRef.current) {
+                hlsRef.current.destroy()
+                hlsRef.current = null
+            }
+
+            if (videoUrl.endsWith('.m3u8')) {
+                const { default: Hls } = await import('hls.js')
+                if (cancelled) return
+
+                if (Hls.isSupported()) {
+                    hls = new Hls({ maxBufferLength: 30, maxMaxBufferLength: 60 })
+                    hlsRef.current = hls
+                    hls.loadSource(videoUrl)
+                    hls.attachMedia(video)
+                    hls.on(Hls.Events.ERROR, (_event: any, data: any) => {
+                        if (data.fatal) {
+                            console.error('[HLS] Fatal error:', data.type, data.details)
+                            setHasError(true)
+                        }
+                    })
+                } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                    // Safari: ネイティブHLS対応
+                    video.src = videoUrl
+                } else {
+                    console.error('[VideoPlayer] HLS not supported')
+                    setHasError(true)
+                }
+            } else {
+                // 直接MP4 URL（後方互換性）
+                video.src = videoUrl
+            }
+        }
+
+        init()
+
+        return () => {
+            cancelled = true
+            if (hls) { hls.destroy(); hls = null }
+            if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null }
+        }
+    }, [videoUrl])
 
     // --- Touch device detection ---
     useEffect(() => {
@@ -374,7 +427,6 @@ export function VideoPlayerModal({ videoUrl, onClose }: VideoPlayerModalProps) {
             {/* Video element */}
             <video
                 ref={videoRef}
-                src={videoUrl}
                 className="absolute inset-0 w-full h-full object-contain"
                 onTimeUpdate={() => {
                     const v = videoRef.current
@@ -430,7 +482,7 @@ export function VideoPlayerModal({ videoUrl, onClose }: VideoPlayerModalProps) {
                 <div className="absolute inset-0 flex items-center justify-center z-10
                                 pointer-events-none">
                     <p className="text-white text-lg">
-                        {videoUrl?.includes('b-cdn.net') ? '動画をエンコード中です。しばらくお待ちください。' : 'Failed to load video'}
+                        {videoUrl?.endsWith('.m3u8') ? '動画をエンコード中です。しばらくお待ちください。' : 'Failed to load video'}
                     </p>
                 </div>
             )}
