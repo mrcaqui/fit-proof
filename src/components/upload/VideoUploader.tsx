@@ -7,9 +7,13 @@ import { generateThumbnail } from '@/utils/thumbnail'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
 import { Upload, CheckCircle, AlertCircle, Film } from 'lucide-react'
-
-const MAX_FILE_SIZE = 500 * 1024 * 1024 // 500MB
-const ALLOWED_TYPES = ['video/mp4', 'video/quicktime', 'video/webm']
+import {
+  MAX_FILE_SIZE,
+  ACCEPT_ATTRIBUTE,
+  FORMAT_LABEL,
+  SIZE_LABEL,
+  isAllowedVideoFile,
+} from '@/lib/upload-constants'
 
 export function VideoUploader() {
     const { user } = useAuth()
@@ -30,14 +34,14 @@ export function VideoUploader() {
         if (!selectedFile) return
 
         // Validate file type
-        if (!ALLOWED_TYPES.includes(selectedFile.type)) {
-            setError('サポートされていないファイル形式です。MP4, MOV, WebM形式のみ対応しています。')
+        if (!isAllowedVideoFile(selectedFile)) {
+            setError(`サポートされていないファイル形式です。${FORMAT_LABEL}形式に対応しています。`)
             return
         }
 
         // Validate file size
         if (selectedFile.size > MAX_FILE_SIZE) {
-            setError('ファイルサイズが大きすぎます。500MB以下のファイルを選択してください。')
+            setError(`ファイルサイズが大きすぎます。${SIZE_LABEL}以下のファイルを選択してください。`)
             return
         }
 
@@ -134,7 +138,7 @@ export function VideoUploader() {
                 <input
                     ref={fileInputRef}
                     type="file"
-                    accept="video/mp4,video/quicktime,video/webm"
+                    accept={ACCEPT_ATTRIBUTE}
                     onChange={handleFileSelect}
                     className="hidden"
                     id="video-input"
@@ -146,7 +150,7 @@ export function VideoUploader() {
                 >
                     <Film className="h-12 w-12 text-muted-foreground" />
                     <span className="text-sm text-muted-foreground">
-                        クリックして動画を選択（MP4, MOV, WebM / 最大500MB）
+                        {`クリックして動画を選択（${FORMAT_LABEL} / 最大${SIZE_LABEL}）`}
                     </span>
                 </label>
             </div>

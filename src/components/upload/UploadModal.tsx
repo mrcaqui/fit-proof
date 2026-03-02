@@ -10,10 +10,14 @@ import { Progress } from '@/components/ui/progress'
 import { Upload, CheckCircle, AlertCircle, Film, X } from 'lucide-react'
 import { format } from 'date-fns'
 import { ja } from 'date-fns/locale'
-
-const MAX_FILE_SIZE = 500 * 1024 * 1024 // 500MB
-const HASH_THRESHOLD = 100 * 1024 * 1024 // 100MB超はハッシュスキップ
-const ALLOWED_TYPES = ['video/mp4', 'video/quicktime', 'video/webm']
+import {
+  MAX_FILE_SIZE,
+  HASH_THRESHOLD,
+  ACCEPT_ATTRIBUTE,
+  FORMAT_LABEL,
+  SIZE_LABEL,
+  isAllowedVideoFile,
+} from '@/lib/upload-constants'
 
 interface UploadModalProps {
     targetDate: Date | null
@@ -87,13 +91,13 @@ export function UploadModal({ targetDate, onClose, onSuccess, items, completedSu
 
         if (!selectedFile) return
 
-        if (!ALLOWED_TYPES.includes(selectedFile.type)) {
-            updateState(itemId, { error: 'サポートされていないファイル形式です。MP4, MOV, WebM形式のみ対応しています。' })
+        if (!isAllowedVideoFile(selectedFile)) {
+            updateState(itemId, { error: `サポートされていないファイル形式です。${FORMAT_LABEL}形式に対応しています。` })
             return
         }
 
         if (selectedFile.size > MAX_FILE_SIZE) {
-            updateState(itemId, { error: 'ファイルサイズが大きすぎます。500MB以下のファイルを選択してください。' })
+            updateState(itemId, { error: `ファイルサイズが大きすぎます。${SIZE_LABEL}以下のファイルを選択してください。` })
             return
         }
 
@@ -347,7 +351,7 @@ export function UploadModal({ targetDate, onClose, onSuccess, items, completedSu
                     <input
                         ref={el => fileInputRefs.current[itemId] = el}
                         type="file"
-                        accept="video/mp4,video/quicktime,video/webm"
+                        accept={ACCEPT_ATTRIBUTE}
                         onChange={(e) => handleFileSelect(e, itemId)}
                         className="hidden"
                         id={`file-input-${itemId}`}
@@ -362,7 +366,7 @@ export function UploadModal({ targetDate, onClose, onSuccess, items, completedSu
                             <>
                                 <Film className="h-8 w-8 text-muted-foreground" />
                                 <span className="text-sm font-medium">クリックして動画を選択</span>
-                                <span className="text-[10px] text-muted-foreground">MP4, MOV, WebM / 500MB以内</span>
+                                <span className="text-[10px] text-muted-foreground">{`${FORMAT_LABEL} / ${SIZE_LABEL}以内`}</span>
                             </>
                         )}
 
