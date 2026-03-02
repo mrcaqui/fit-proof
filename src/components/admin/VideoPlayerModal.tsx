@@ -403,7 +403,16 @@ export function VideoPlayerModal({ videoUrl, onClose }: VideoPlayerModalProps) {
                         hideTimerRef.current = null
                     }
                 }}
-                onError={() => setHasError(true)}
+                onError={(e) => {
+                    const video = e.currentTarget
+                    const err = video.error
+                    console.error('[VideoPlayer] Load error:', {
+                        code: err?.code,
+                        message: err?.message,
+                        src: video.src,
+                    })
+                    setHasError(true)
+                }}
                 playsInline
             />
 

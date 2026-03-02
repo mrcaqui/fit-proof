@@ -30,6 +30,9 @@ export async function createBunnyVideo(title: string): Promise<BunnyUploadCreden
  */
 export function getBunnyVideoUrl(videoId: string): string {
     const hostname = import.meta.env.VITE_BUNNY_CDN_HOSTNAME
+    if (!hostname) {
+        console.error('[bunny] VITE_BUNNY_CDN_HOSTNAME is not set. Video playback will fail.')
+    }
     return `https://${hostname}/${videoId}/play_${BUNNY_RESOLUTION}.mp4`
 }
 
