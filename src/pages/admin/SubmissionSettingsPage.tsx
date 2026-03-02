@@ -22,7 +22,6 @@ import {
     PopoverContent,
     PopoverTrigger,
 } from "@/components/ui/popover"
-import { Progress } from '@/components/ui/progress'
 import { getTotalStorageUsedBytes } from '@/lib/bunny'
 import { cn } from '@/lib/utils'
 import { format, parseISO, max as dateMax } from 'date-fns'
@@ -1563,13 +1562,8 @@ export default function SubmissionSettingsPage() {
                                     </Popover>
                                 </div>
                                 <div className="text-2xl font-bold">
-                                    {(storageUsedBytes / 1024 / 1024 / 1024).toFixed(2)} GB
-                                    <span className="text-base font-normal text-muted-foreground"> / 10 GB</span>
+                                    現在のストレージ使用量: {(storageUsedBytes / 1024 / 1024 / 1024).toFixed(2)} GB
                                 </div>
-                                <Progress
-                                    value={Math.min((storageUsedBytes / (10 * 1024 * 1024 * 1024)) * 100, 100)}
-                                    className="h-3"
-                                />
                             </div>
                             )}
 

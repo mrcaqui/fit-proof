@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react'
 import { Database } from '@/types/database.types'
 import * as tus from 'tus-js-client'
-import { createBunnyVideo, deleteBunnyVideo, checkStorageAvailable, waitForBunnyProcessing } from '@/lib/bunny'
+import { createBunnyVideo, deleteBunnyVideo, waitForBunnyProcessing } from '@/lib/bunny'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/context/AuthContext'
 import { generateThumbnail } from '@/utils/thumbnail'
@@ -148,24 +148,12 @@ export function PendingUploadCard({ item, targetDate, onSuccess, isLate = false 
             // 既存のレコードを検索
             const { data: existing } = await supabase
                 .from('submissions')
-                .select('id, bunny_video_id, video_size')
+                .select('id, bunny_video_id')
                 .match({
                     user_id: user.id,
                     target_date: targetDateStr,
                     submission_item_id: item.id
-                }) as { data: { id: number, bunny_video_id: string | null, video_size: number | null }[] | null }
-
-            const existingTotalSize = (existing || []).reduce((sum, r) => sum + (r.video_size || 0), 0)
-
-            // 早期 UX チェック
-            const storageCheck = await checkStorageAvailable(state.file.size, existingTotalSize)
-            if (!storageCheck.available) {
-                updateState({
-                    error: 'ストレージが一杯のため、アップロードできません。管理者に連絡してください。',
-                    isUploading: false
-                })
-                return
-            }
+                }) as { data: { id: number, bunny_video_id: string | null }[] | null }
 
             // Bunny にビデオ作成 + TUS 認証情報取得
             const bunnyResult = await createBunnyVideo(state.file.name)
@@ -242,13 +230,6 @@ export function PendingUploadCard({ item, targetDate, onSuccess, isLate = false 
 
                 if (rpcError) {
                     await deleteBunnyVideo(bunnyResult.videoId).catch(e => console.error('Bunny cleanup failed:', e))
-                    if (rpcError.message?.includes('STORAGE_LIMIT_EXCEEDED')) {
-                        updateState({
-                            error: 'ストレージが一杯のため、アップロードできません。管理者に連絡してください。',
-                            isUploading: false
-                        })
-                        return
-                    }
                     throw new Error('Failed to save submission record')
                 }
 
@@ -278,13 +259,6 @@ export function PendingUploadCard({ item, targetDate, onSuccess, isLate = false 
 
                 if (dbError) {
                     await deleteBunnyVideo(bunnyResult.videoId).catch(e => console.error('Bunny cleanup failed:', e))
-                    if (dbError.message?.includes('STORAGE_LIMIT_EXCEEDED')) {
-                        updateState({
-                            error: 'ストレージが一杯のため、アップロードできません。管理者に連絡してください。',
-                            isUploading: false
-                        })
-                        return
-                    }
                     throw new Error('Failed to save submission record')
                 }
             }

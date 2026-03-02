@@ -116,8 +116,6 @@ export async function waitForBunnyProcessing(
     return { success: finalStatus >= 2 && finalStatus <= 4, status: finalStatus }
 }
 
-const STORAGE_LIMIT = 10 * 1024 * 1024 * 1024 // 10GB
-
 /**
  * DB に記録された全 submission の video_size 合計を返す。
  * bunny_video_id が設定されている行のみ対象。
@@ -134,18 +132,4 @@ export async function getTotalStorageUsedBytes(): Promise<number> {
         return 0
     }
     return (data || []).reduce((sum, row) => sum + (row.video_size || 0), 0)
-}
-
-/**
- * アップロード前にストレージ残量をチェック（早期 UX フィードバック用）
- */
-export async function checkStorageAvailable(
-    uploadSizeBytes: number,
-    existingVideoSizeBytes: number = 0
-): Promise<{ available: boolean; usedBytes: number }> {
-    const usedBytes = await getTotalStorageUsedBytes()
-    return {
-        available: usedBytes - existingVideoSizeBytes + uploadSizeBytes <= STORAGE_LIMIT,
-        usedBytes
-    }
 }
