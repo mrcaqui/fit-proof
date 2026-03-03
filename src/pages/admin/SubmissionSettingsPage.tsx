@@ -22,7 +22,7 @@ import {
     PopoverContent,
     PopoverTrigger,
 } from "@/components/ui/popover"
-import { getTotalStorageUsedBytes } from '@/lib/bunny'
+import { getBunnyStats, type BunnyStats } from '@/lib/bunny'
 import { cn } from '@/lib/utils'
 import { format, parseISO, max as dateMax } from 'date-fns'
 import { Settings } from 'lucide-react'
@@ -135,7 +135,9 @@ export default function SubmissionSettingsPage() {
 
     // Storage management state
     const [videoRetentionDays, setVideoRetentionDays] = useState<number>(30)
-    const [storageUsedBytes, setStorageUsedBytes] = useState<number>(0)
+    const [bunnyStats, setBunnyStats] = useState<BunnyStats | null>(null)
+    const [bunnyStatsLoading, setBunnyStatsLoading] = useState(false)
+    const [bunnyStatsError, setBunnyStatsError] = useState<string | null>(null)
 
     // Fetch clients (profile + preconfig)
     useEffect(() => {
@@ -252,11 +254,6 @@ export default function SubmissionSettingsPage() {
             }
         }
 
-        const fetchStorageUsage = async () => {
-            const totalBytes = await getTotalStorageUsedBytes()
-            setStorageUsedBytes(totalBytes)
-        }
-
         const fetchGamificationSettings = async () => {
             if (!selectedClientId || isPreconfig(selectedClientId)) return
 
@@ -286,8 +283,24 @@ export default function SubmissionSettingsPage() {
 
         fetchCalendarSettings()
         fetchGamificationSettings()
-        fetchStorageUsage()
     }, [selectedClientId])
+
+    // Bunny統計はライブラリ/アカウントレベル（グローバル）なのでページマウント時1回のみ取得
+    useEffect(() => {
+        const fetchBunnyStats = async () => {
+            setBunnyStatsLoading(true)
+            setBunnyStatsError(null)
+            try {
+                const stats = await getBunnyStats()
+                setBunnyStats(stats)
+            } catch (e) {
+                setBunnyStatsError(e instanceof Error ? e.message : String(e))
+            } finally {
+                setBunnyStatsLoading(false)
+            }
+        }
+        fetchBunnyStats()
+    }, [])
 
     const handleUpdateCalendarSettings = async () => {
         if (!selectedClientId) return
@@ -1528,46 +1541,97 @@ export default function SubmissionSettingsPage() {
                     </Card>
                 </div>
 
-                {/* Storage Management Card */}
+                {/* Bunny Stream 利用状況カード */}
                 <div className="space-y-6 md:col-span-1 xl:col-span-2">
                     <Card className="border-primary/20 shadow-md">
                         <CardHeader className="bg-primary/5 border-b">
                             <CardTitle className="flex items-center gap-2 text-primary">
-                                <HardDrive className="w-5 h-5" /> ストレージ管理
+                                <HardDrive className="w-5 h-5" /> Bunny Stream 利用状況
                             </CardTitle>
                             <CardDescription>
-                                動画ファイルの保持期間とストレージ使用量を管理します。
+                                動画ストレージの利用量・料金と保持期間を管理します。
                             </CardDescription>
                         </CardHeader>
                         <CardContent className="space-y-6 pt-6">
-                            {/* 使用量表示（preconfig モードでは非表示） */}
+                            {/* Bunny利用量・料金セクション（preconfigモード以外で表示） */}
                             {!isPreconfig(selectedClientId) && (
-                            <div className="space-y-2">
-                                <div className="flex items-center gap-2">
-                                    <Label>現在の使用量（全クライアント合計）</Label>
-                                    <Popover>
-                                        <PopoverTrigger asChild>
-                                            <button className="text-muted-foreground hover:text-foreground transition-colors">
-                                                <Info className="w-4 h-4" />
-                                            </button>
-                                        </PopoverTrigger>
-                                        <PopoverContent className="w-80 text-sm space-y-2">
-                                            <p className="text-muted-foreground">
-                                                ストレージ使用量は、全クライアントの動画ファイルサイズの合計（DBに記録された video_size の合計値）から算出しています。動画が削除済みのレコードは含みません。孤立ファイルはアプリ起動時に自動クリーンアップされます。
-                                            </p>
-                                            <p className="text-muted-foreground">
-                                                使用量はこのページを開いた時点（またはクライアント切り替え時）に取得されます。最新の値を確認するにはページを再読み込みしてください。
-                                            </p>
-                                        </PopoverContent>
-                                    </Popover>
-                                </div>
-                                <div className="text-2xl font-bold">
-                                    現在のストレージ使用量: {(storageUsedBytes / 1024 / 1024 / 1024).toFixed(2)} GB
-                                </div>
-                            </div>
+                            <>
+                                {bunnyStatsLoading && (
+                                    <p className="text-sm text-muted-foreground">読み込み中...</p>
+                                )}
+                                {bunnyStatsError && (
+                                    <div className="text-sm text-destructive bg-destructive/10 rounded p-3">
+                                        Bunny統計の取得に失敗しました: {bunnyStatsError}
+                                    </div>
+                                )}
+                                {bunnyStats && !bunnyStatsLoading && (
+                                <>
+                                    {/* 利用量 */}
+                                    <div className="grid grid-cols-3 gap-4">
+                                        <div className="space-y-1">
+                                            <p className="text-xs text-muted-foreground">ストレージ使用量</p>
+                                            <p className="text-xl font-bold">{(bunnyStats.storageUsedBytes / 1024 / 1024 / 1024).toFixed(2)} GB</p>
+                                        </div>
+                                        <div className="space-y-1">
+                                            <p className="text-xs text-muted-foreground">CDN配信トラフィック（当月）</p>
+                                            <p className="text-xl font-bold">{(bunnyStats.trafficUsedBytes / 1024 / 1024 / 1024).toFixed(2)} GB</p>
+                                        </div>
+                                        <div className="space-y-1">
+                                            <p className="text-xs text-muted-foreground">動画数</p>
+                                            <p className="text-xl font-bold">{bunnyStats.videoCount} 本</p>
+                                        </div>
+                                    </div>
+
+                                    {/* 料金 */}
+                                    <div className="space-y-3 border-t pt-4">
+                                        <div className="flex items-baseline justify-between">
+                                            <span className="text-sm font-medium">当月合計料金</span>
+                                            <span className="text-2xl font-bold">${bunnyStats.billing.thisMonthCharges.toFixed(2)}</span>
+                                        </div>
+                                        <div className="text-sm text-muted-foreground space-y-1">
+                                            <div className="flex justify-between">
+                                                <span>ストレージ</span>
+                                                <span>${bunnyStats.billing.storageCharges.toFixed(2)}</span>
+                                            </div>
+                                            <div className="flex justify-between">
+                                                <span>
+                                                    トラフィック合計
+                                                    {(() => {
+                                                        const tc = bunnyStats.billing.trafficCharges
+                                                        const parts: string[] = []
+                                                        if (tc.us > 0) parts.push(`北米 $${tc.us.toFixed(2)}`)
+                                                        if (tc.eu > 0) parts.push(`EU $${tc.eu.toFixed(2)}`)
+                                                        if (tc.asia > 0) parts.push(`アジア $${tc.asia.toFixed(2)}`)
+                                                        if (tc.af > 0) parts.push(`アフリカ $${tc.af.toFixed(2)}`)
+                                                        if (tc.sa > 0) parts.push(`南米 $${tc.sa.toFixed(2)}`)
+                                                        return parts.length > 0 ? ` (${parts.join(', ')})` : ''
+                                                    })()}
+                                                </span>
+                                                <span>${(
+                                                    bunnyStats.billing.trafficCharges.eu +
+                                                    bunnyStats.billing.trafficCharges.us +
+                                                    bunnyStats.billing.trafficCharges.asia +
+                                                    bunnyStats.billing.trafficCharges.af +
+                                                    bunnyStats.billing.trafficCharges.sa
+                                                ).toFixed(2)}</span>
+                                            </div>
+                                        </div>
+                                        <div className="flex justify-between text-sm border-t pt-2">
+                                            <span className="text-muted-foreground">アカウント残高</span>
+                                            <span className="font-medium">${bunnyStats.billing.balance.toFixed(2)}</span>
+                                        </div>
+                                    </div>
+
+                                    {/* 参考情報 */}
+                                    <div className="text-xs text-muted-foreground border-t pt-3">
+                                        <span>DB記録ベース使用量（参考）: {(bunnyStats.dbStorageUsedBytes / 1024 / 1024 / 1024).toFixed(2)} GB</span>
+                                    </div>
+                                </>
+                                )}
+                            </>
                             )}
 
-                            {/* 保持期間設定 */}
+                            {/* 保持期間設定（常に表示） */}
                             <div className="space-y-2">
                                 <Label>動画保持期間</Label>
                                 <div className="flex items-center gap-3">

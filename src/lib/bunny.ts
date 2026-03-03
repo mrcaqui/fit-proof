@@ -133,3 +133,47 @@ export async function getTotalStorageUsedBytes(): Promise<number> {
     }
     return (data || []).reduce((sum, row) => sum + (row.video_size || 0), 0)
 }
+
+// --- Bunny Stats (利用量 + 料金) ---
+
+export interface BunnyBilling {
+    thisMonthCharges: number
+    balance: number
+    storageCharges: number
+    trafficCharges: {
+        eu: number
+        us: number
+        asia: number
+        af: number
+        sa: number
+    }
+}
+
+export interface BunnyStats {
+    storageUsedBytes: number
+    trafficUsedBytes: number
+    videoCount: number
+    dbStorageUsedBytes: number
+    billing: BunnyBilling
+}
+
+/**
+ * Bunny Stream の利用量・料金を Edge Function 経由で取得し、
+ * DB記録ベースの使用量とマージして返す。
+ */
+export async function getBunnyStats(): Promise<BunnyStats> {
+    const [edgeResult, dbBytes] = await Promise.all([
+        supabase.functions.invoke('bunny-stats'),
+        getTotalStorageUsedBytes(),
+    ])
+
+    if (edgeResult.error) {
+        throw new Error(`Bunny stats fetch failed: ${edgeResult.error.message}`)
+    }
+
+    const data = edgeResult.data as Omit<BunnyStats, 'dbStorageUsedBytes'>
+    return {
+        ...data,
+        dbStorageUsedBytes: dbBytes,
+    }
+}
