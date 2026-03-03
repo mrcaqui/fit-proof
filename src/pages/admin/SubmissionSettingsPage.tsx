@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { NumberStepper } from '@/components/ui/number-stepper'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
-import { Plus, Trash2, Calendar as CalendarIcon, Clock, Gamepad2, HardDrive, Info, Users, ChevronDown, RotateCcw, AlertTriangle } from 'lucide-react'
+import { Plus, Trash2, Calendar as CalendarIcon, Clock, Gamepad2, HardDrive, Users, ChevronDown, RotateCcw, AlertTriangle } from 'lucide-react'
 import {
     Select,
     SelectContent,
@@ -17,11 +17,6 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select"
-import {
-    Popover,
-    PopoverContent,
-    PopoverTrigger,
-} from "@/components/ui/popover"
 import { getBunnyStats, type BunnyStats } from '@/lib/bunny'
 import { cn } from '@/lib/utils'
 import { format, parseISO, max as dateMax } from 'date-fns'
