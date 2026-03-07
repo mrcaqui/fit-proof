@@ -1,4 +1,4 @@
-import { GamificationSettings, DEFAULT_GAMIFICATION_SETTINGS } from './gamification.types'
+import { PreconfigGamificationSettings, DEFAULT_GAMIFICATION_SETTINGS } from './gamification.types'
 
 export interface PreconfigRule {
     temp_id: number
@@ -26,7 +26,7 @@ export interface PreconfigProfileSettings {
     deadline_mode: 'none' | 'mark'
     show_duplicate_to_user: boolean
     video_retention_days: number
-    gamification_settings: GamificationSettings | null
+    gamification_settings: PreconfigGamificationSettings | null
 }
 
 export interface PreconfigData {

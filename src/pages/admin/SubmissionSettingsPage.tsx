@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
-import { GamificationSettings, DEFAULT_GAMIFICATION_SETTINGS } from '@/types/gamification.types'
+import { GamificationSettings, DEFAULT_GAMIFICATION_SETTINGS, VersionedSettings, DEFAULT_VERSIONED_SETTINGS, GamificationSettingVersion, PreconfigGamificationSettings } from '@/types/gamification.types'
 import { PreconfigData, PreconfigRule, PreconfigItem, DEFAULT_PRECONFIG } from '@/types/preconfig.types'
 import { useSubmissionRules } from '@/hooks/useSubmissionRules'
 import { useSubmissionItems } from '@/hooks/useSubmissionItems'
+import { useGamificationVersions } from '@/hooks/useGamificationVersions'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -126,7 +127,36 @@ export default function SubmissionSettingsPage() {
 
     // Gamification settings state
     const [gamificationSettings, setGamificationSettings] = useState<GamificationSettings>(DEFAULT_GAMIFICATION_SETTINGS)
+    const [versionedSettings, setVersionedSettings] = useState<VersionedSettings>(DEFAULT_VERSIONED_SETTINGS)
     const [isUpdatingGamification, setIsUpdatingGamification] = useState(false)
+
+    // Gamification version management
+    const {
+        activeVersion, deletedVersions,
+        saveNewVersion, reactivateVersion, updateVersionEffectiveTo,
+        loading: versionsLoading,
+    } = useGamificationVersions(effectiveProfileId)
+
+    // Sync versionedSettings from activeVersion (or preconfig)
+    useEffect(() => {
+        if (isPreconfig(selectedClientId)) {
+            // preconfig モードでは preconfigData から取得
+            const gs = preconfigData?.profile_settings?.gamification_settings as PreconfigGamificationSettings | null
+            setVersionedSettings(gs?.versioned_settings ?? DEFAULT_VERSIONED_SETTINGS)
+        } else if (activeVersion) {
+            setVersionedSettings({
+                condition_type: activeVersion.condition_type,
+                straight_count: activeVersion.straight_count,
+                allow_shield: activeVersion.allow_shield,
+                allow_revival: activeVersion.allow_revival,
+                allow_late: activeVersion.allow_late,
+                use_target_days: activeVersion.use_target_days,
+                custom_required_days: activeVersion.custom_required_days,
+            })
+        } else if (!versionsLoading) {
+            setVersionedSettings(DEFAULT_VERSIONED_SETTINGS)
+        }
+    }, [activeVersion, versionsLoading, selectedClientId, preconfigData])
 
     // Storage management state
     const [videoRetentionDays, setVideoRetentionDays] = useState<number>(30)
@@ -345,17 +375,22 @@ export default function SubmissionSettingsPage() {
 
         if (isPreconfig(selectedClientId)) {
             if (preconfigData) {
+                const preconfigGs: PreconfigGamificationSettings = {
+                    ...gamificationSettings,
+                    versioned_settings: versionedSettings,
+                }
                 const next: PreconfigData = {
                     ...preconfigData,
                     profile_settings: {
                         ...preconfigData.profile_settings,
-                        gamification_settings: gamificationSettings,
+                        gamification_settings: preconfigGs,
                     },
                 }
                 setPreconfigData(next)
                 await savePreconfig(next)
             }
         } else {
+            // JSONB（UI フラグ + effective_from）を profiles に保存
             const client = supabase.from('profiles') as any
             const { error } = await client
                 .update({
@@ -365,9 +400,34 @@ export default function SubmissionSettingsPage() {
 
             if (error) {
                 alert('ゲーミフィケーション設定の保存に失敗しました: ' + error.message)
+            } else {
+                // バージョン管理設定を RPC で保存（新バージョン作成）
+                const ok = await saveNewVersion(versionedSettings)
+                if (!ok) {
+                    alert('バージョン管理設定の保存に失敗しました')
+                }
             }
         }
         setIsUpdatingGamification(false)
+    }
+
+    // allow_late 変更ハンドラ: allow_late=true のとき allow_revival を強制 true
+    const handleAllowLateChange = (newAllowLate: boolean) => {
+        setVersionedSettings(prev => ({
+            ...prev,
+            allow_late: newAllowLate,
+            allow_revival: newAllowLate ? true : prev.allow_revival,
+        }))
+    }
+
+    // 設定履歴: effective_to の更新
+    const handleUpdateVersionEffectiveTo = async (id: number, newDate: string) => {
+        await updateVersionEffectiveTo(id, newDate)
+    }
+
+    // 設定履歴: 再有効化
+    const handleReactivateVersion = async (version: GamificationSettingVersion) => {
+        await reactivateVersion(version)
     }
 
     // ゲーミフィケーション設定のヘルパー関数
@@ -1312,8 +1372,8 @@ export default function SubmissionSettingsPage() {
                                             <input
                                                 type="radio"
                                                 name="straightTargetMode"
-                                                checked={gamificationSettings.straight.use_target_days}
-                                                onChange={() => updateStraightSettings({ use_target_days: true })}
+                                                checked={versionedSettings.use_target_days}
+                                                onChange={() => setVersionedSettings(prev => ({ ...prev, use_target_days: true }))}
                                             />
                                             <span className="text-sm">目標日数設定に基づく（自動計算）</span>
                                         </label>
@@ -1321,14 +1381,14 @@ export default function SubmissionSettingsPage() {
                                             <input
                                                 type="radio"
                                                 name="straightTargetMode"
-                                                checked={!gamificationSettings.straight.use_target_days}
-                                                onChange={() => updateStraightSettings({ use_target_days: false })}
+                                                checked={!versionedSettings.use_target_days}
+                                                onChange={() => setVersionedSettings(prev => ({ ...prev, use_target_days: false }))}
                                             />
                                             <span className="text-sm">手動で指定:</span>
                                             <Select
-                                                value={String(gamificationSettings.straight.custom_required_days)}
-                                                onValueChange={(v) => updateStraightSettings({ custom_required_days: Number(v) })}
-                                                disabled={gamificationSettings.straight.use_target_days}
+                                                value={String(versionedSettings.custom_required_days)}
+                                                onValueChange={(v) => setVersionedSettings(prev => ({ ...prev, custom_required_days: Number(v) }))}
+                                                disabled={versionedSettings.use_target_days}
                                             >
                                                 <SelectTrigger className="w-20">
                                                     <SelectValue />
@@ -1348,17 +1408,30 @@ export default function SubmissionSettingsPage() {
                                             <label className="flex items-center gap-2 cursor-pointer">
                                                 <input
                                                     type="checkbox"
-                                                    checked={gamificationSettings.straight.allow_revival}
-                                                    onChange={(e) => updateStraightSettings({ allow_revival: e.target.checked })}
+                                                    checked={versionedSettings.allow_late}
+                                                    onChange={(e) => handleAllowLateChange(e.target.checked)}
                                                     className="w-4 h-4 rounded"
                                                 />
-                                                <span className="text-sm">リバイバル投稿を達成としてカウント</span>
+                                                <span className="text-sm">期限超過投稿を達成としてカウント</span>
+                                            </label>
+                                            <label className={cn("flex items-center gap-2", versionedSettings.allow_late ? "opacity-50 cursor-not-allowed" : "cursor-pointer")}>
+                                                <input
+                                                    type="checkbox"
+                                                    checked={versionedSettings.allow_revival}
+                                                    disabled={versionedSettings.allow_late}
+                                                    onChange={(e) => setVersionedSettings(prev => ({ ...prev, allow_revival: e.target.checked }))}
+                                                    className="w-4 h-4 rounded"
+                                                />
+                                                <span className="text-sm">
+                                                    リバイバル投稿を達成としてカウント
+                                                    {versionedSettings.allow_late && <span className="text-xs text-muted-foreground ml-1">（期限超過許容時は強制ON）</span>}
+                                                </span>
                                             </label>
                                             <label className="flex items-center gap-2 cursor-pointer">
                                                 <input
                                                     type="checkbox"
-                                                    checked={gamificationSettings.straight.allow_shield}
-                                                    onChange={(e) => updateStraightSettings({ allow_shield: e.target.checked })}
+                                                    checked={versionedSettings.allow_shield}
+                                                    onChange={(e) => setVersionedSettings(prev => ({ ...prev, allow_shield: e.target.checked }))}
                                                     className="w-4 h-4 rounded"
                                                 />
                                                 <span className="text-sm">シールド適用を達成としてカウント</span>
@@ -1391,14 +1464,14 @@ export default function SubmissionSettingsPage() {
                                             <input
                                                 type="radio"
                                                 name="shieldCondition"
-                                                checked={gamificationSettings.shield.condition_type === 'straight_count'}
-                                                onChange={() => updateShieldSettings({ condition_type: 'straight_count' })}
+                                                checked={versionedSettings.condition_type === 'straight_count'}
+                                                onChange={() => setVersionedSettings(prev => ({ ...prev, condition_type: 'straight_count' as const }))}
                                             />
                                             <span className="text-sm">ストレート達成</span>
                                             <Select
-                                                value={String(gamificationSettings.shield.straight_count)}
-                                                onValueChange={(v) => updateShieldSettings({ straight_count: Number(v) })}
-                                                disabled={gamificationSettings.shield.condition_type !== 'straight_count'}
+                                                value={String(versionedSettings.straight_count)}
+                                                onValueChange={(v) => setVersionedSettings(prev => ({ ...prev, straight_count: Number(v) }))}
+                                                disabled={versionedSettings.condition_type !== 'straight_count'}
                                             >
                                                 <SelectTrigger className="w-16">
                                                     <SelectValue />
@@ -1415,8 +1488,8 @@ export default function SubmissionSettingsPage() {
                                             <input
                                                 type="radio"
                                                 name="shieldCondition"
-                                                checked={gamificationSettings.shield.condition_type === 'monthly_all'}
-                                                onChange={() => updateShieldSettings({ condition_type: 'monthly_all' })}
+                                                checked={versionedSettings.condition_type === 'monthly_all'}
+                                                onChange={() => setVersionedSettings(prev => ({ ...prev, condition_type: 'monthly_all' as const }))}
                                             />
                                             <span className="text-sm">月の全対象日をストレート達成でシールド獲得</span>
                                         </label>
@@ -1532,6 +1605,27 @@ export default function SubmissionSettingsPage() {
                             >
                                 {isUpdatingGamification ? '保存中...' : 'ゲーミフィケーション設定を保存'}
                             </Button>
+
+                            {/* 設定履歴 */}
+                            {!isPreconfig(selectedClientId) && deletedVersions.length > 0 && (
+                                <DeletedAccordion
+                                    label={`設定履歴（${deletedVersions.length}件）`}
+                                    items={deletedVersions
+                                        .sort((a, b) => (b.effective_to ?? '').localeCompare(a.effective_to ?? ''))
+                                        .map(v => ({
+                                            id: v.id,
+                                            label: `${v.allow_late ? '遅刻許容' : '遅刻不可'} / ${v.allow_revival ? 'リバイバル可' : 'リバイバル不可'} / ${v.allow_shield ? 'シールド可' : 'シールド不可'}`,
+                                            effectiveFrom: v.effective_from,
+                                            effectiveTo: v.effective_to!,
+                                        }))
+                                    }
+                                    onUpdateEffectiveTo={handleUpdateVersionEffectiveTo}
+                                    onReactivate={(id) => {
+                                        const v = deletedVersions.find(dv => dv.id === id)
+                                        if (v) handleReactivateVersion(v)
+                                    }}
+                                />
+                            )}
                         </CardContent>
                     </Card>
                 </div>

@@ -431,9 +431,9 @@ export default function CalendarPage() {
                     <p className="font-semibold mb-1">🛡️ シールド</p>
                     <p className="text-muted-foreground">
                       投稿していない日に手動で適用して連続日数を守れます。カレンダーの日別画面から適用できます。
-                      {gamification.settings.shield.condition_type ===
+                      {(gamification.activeVersion?.condition_type ?? 'straight_count') ===
                       "straight_count"
-                        ? `ストレート${gamification.settings.shield.straight_count}回達成でシールド+1獲得！`
+                        ? `ストレート${gamification.activeVersion?.straight_count ?? 1}回達成でシールド+1獲得！`
                         : "月の全対象日をストレート達成でシールド+1獲得！"}
                     </p>
                   </PopoverContent>
@@ -459,14 +459,16 @@ export default function CalendarPage() {
                     <p className="font-semibold mb-1">👑 ストレート達成</p>
                     <p className="text-muted-foreground">
                       {(() => {
-                        const settings = gamification.settings.straight;
-                        const targetDays = settings.use_target_days
+                        const av = gamification.activeVersion;
+                        const useTargetDays = av?.use_target_days ?? true;
+                        const customRequiredDays = av?.custom_required_days ?? 7;
+                        const targetDays = useTargetDays
                           ? getTargetDaysPerWeek()
-                          : settings.custom_required_days;
+                          : customRequiredDays;
                         const conditions: string[] = [];
-                        if (!settings.allow_revival)
+                        if (!(av?.allow_revival ?? false))
                           conditions.push("リバイバルなし");
-                        if (!settings.allow_shield)
+                        if (!(av?.allow_shield ?? false))
                           conditions.push("シールドなし");
                         const condText =
                           conditions.length > 0

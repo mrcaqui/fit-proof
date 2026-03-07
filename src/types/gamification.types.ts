@@ -2,21 +2,14 @@
  * ゲーミフィケーション設定の型定義
  */
 
-// ストレート達成設定
+// ストレート達成設定（UI表示フラグのみ。計算ロジック用フィールドは VersionedSettings に移動）
 export interface GamificationStraightSettings {
     enabled: boolean        // UI表示するか
-    use_target_days: boolean      // true: 目標日数設定から自動計算, false: custom_required_days を使用
-    custom_required_days: number  // use_target_days=false 時に使う手動指定日数 (1-7)
-    allow_revival: boolean        // ストレート判定でリバイバル日を許容するか
-    allow_shield: boolean         // ストレート判定でシールド日を許容するか
 }
 
-// シールド設定
+// シールド設定（UI表示フラグのみ。condition_type, straight_count は VersionedSettings に移動）
 export interface GamificationShieldSettings {
-    enabled: boolean                // UI表示するか
-    condition_type: 'straight_count' | 'monthly_all'  // シールド獲得条件のタイプ
-    straight_count: number          // ストレート達成◯回でシールド獲得
-    // monthly_all選択時: 月の全対象日をストレート達成でシールド獲得
+    enabled: boolean        // UI表示するか
 }
 
 // リバイバル設定
@@ -34,7 +27,7 @@ export interface GamificationTotalRepsSettings {
     enabled: boolean    // UI表示するか
 }
 
-// ゲーミフィケーション設定全体
+// ゲーミフィケーション設定全体（JSONB に保存される UI フラグ + effective_from）
 export interface GamificationSettings {
     straight: GamificationStraightSettings
     shield: GamificationShieldSettings
@@ -44,19 +37,56 @@ export interface GamificationSettings {
     effective_from: string | null   // 全項目共通の適用開始日 (YYYY-MM-DD)
 }
 
-// デフォルト設定
+// preconfig JSONB 内の gamification_settings は UI フラグ + versioned_settings を含む
+export interface PreconfigGamificationSettings extends GamificationSettings {
+    versioned_settings?: VersionedSettings
+}
+
+// gamification_setting_versions テーブルの行型
+export interface GamificationSettingVersion {
+    id: number
+    user_id: string
+    condition_type: 'straight_count' | 'monthly_all'
+    straight_count: number
+    allow_shield: boolean
+    allow_revival: boolean
+    allow_late: boolean
+    use_target_days: boolean
+    custom_required_days: number
+    effective_from: string
+    effective_to: string | null
+    created_at: string
+}
+
+// 計算に渡す簡易型（テーブル行から抽出）
+export interface VersionedSettings {
+    condition_type: 'straight_count' | 'monthly_all'
+    straight_count: number
+    allow_shield: boolean
+    allow_revival: boolean
+    allow_late: boolean
+    use_target_days: boolean
+    custom_required_days: number
+}
+
+// VersionedSettings のデフォルト値
+export const DEFAULT_VERSIONED_SETTINGS: VersionedSettings = {
+    condition_type: 'straight_count',
+    straight_count: 1,
+    allow_shield: false,
+    allow_revival: false,
+    allow_late: true,
+    use_target_days: true,
+    custom_required_days: 7,
+}
+
+// デフォルト設定（UI フラグ + effective_from のみ）
 export const DEFAULT_GAMIFICATION_SETTINGS: GamificationSettings = {
     straight: {
         enabled: true,
-        use_target_days: true,
-        custom_required_days: 7,
-        allow_revival: false,
-        allow_shield: false,
     },
     shield: {
         enabled: true,
-        condition_type: 'straight_count',
-        straight_count: 1   // デフォルト: 1回ストレート達成でシールド獲得
     },
     revival: {
         enabled: true

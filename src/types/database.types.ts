@@ -204,6 +204,51 @@ export interface Database {
                 }
                 Relationships: []
             }
+            gamification_setting_versions: {
+                Row: {
+                    id: number
+                    user_id: string
+                    condition_type: 'straight_count' | 'monthly_all'
+                    straight_count: number
+                    allow_shield: boolean
+                    allow_revival: boolean
+                    allow_late: boolean
+                    use_target_days: boolean
+                    custom_required_days: number
+                    effective_from: string
+                    effective_to: string | null
+                    created_at: string
+                }
+                Insert: {
+                    id?: number
+                    user_id: string
+                    condition_type?: 'straight_count' | 'monthly_all'
+                    straight_count?: number
+                    allow_shield?: boolean
+                    allow_revival?: boolean
+                    allow_late?: boolean
+                    use_target_days?: boolean
+                    custom_required_days?: number
+                    effective_from?: string
+                    effective_to?: string | null
+                    created_at?: string
+                }
+                Update: {
+                    id?: number
+                    user_id?: string
+                    condition_type?: 'straight_count' | 'monthly_all'
+                    straight_count?: number
+                    allow_shield?: boolean
+                    allow_revival?: boolean
+                    allow_late?: boolean
+                    use_target_days?: boolean
+                    custom_required_days?: number
+                    effective_from?: string
+                    effective_to?: string | null
+                    created_at?: string
+                }
+                Relationships: []
+            }
             admin_comments: {
                 Row: {
                     id: string
@@ -239,6 +284,25 @@ export interface Database {
             delete_user_completely: {
                 Args: { target_email: string }
                 Returns: { target_user_id: string; bunny_video_ids: string[] }[]
+            }
+            save_gamification_version: {
+                Args: {
+                    p_user_id: string
+                    p_condition_type?: string
+                    p_straight_count?: number
+                    p_allow_shield?: boolean
+                    p_allow_revival?: boolean
+                    p_allow_late?: boolean
+                    p_use_target_days?: boolean
+                    p_custom_required_days?: number
+                }
+                Returns: undefined
+            }
+            reactivate_gamification_version: {
+                Args: {
+                    p_version_id: number
+                }
+                Returns: undefined
             }
             replace_submissions: {
                 Args: {

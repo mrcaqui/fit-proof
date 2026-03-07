@@ -8,6 +8,7 @@ import { useAuth } from '@/context/AuthContext'
 import { Database } from '@/types/database.types'
 import { GamificationSettings, DEFAULT_GAMIFICATION_SETTINGS } from '@/types/gamification.types'
 import { calculateStreak, isRevivalCandidate, calculatePerfectWeeks, SubmissionForStreak, GroupConfig } from '@/utils/streakCalculator'
+import { useGamificationVersions } from '@/hooks/useGamificationVersions'
 import { format, parseISO, startOfDay } from 'date-fns'
 
 type Profile = Database['public']['Tables']['profiles']['Row']
@@ -54,7 +55,10 @@ export function useGamification({ targetUserId, submissions, isRestDay, groupCon
     const [pendingNotifications, setPendingNotifications] = useState<PendingNotification[]>([])
     const [loading, setLoading] = useState(true)
 
-    const isReady = !loading && !dataLoading
+    // バージョン管理フック
+    const { getSettingsForDate, activeVersion, loading: versionsLoading } = useGamificationVersions(effectiveUserId)
+
+    const isReady = !loading && !versionsLoading && !dataLoading
 
     // プロフィールからゲーミフィケーションデータを取得
     const fetchGamificationData = useCallback(async () => {
@@ -136,12 +140,13 @@ export function useGamification({ targetUserId, submissions, isRestDay, groupCon
         }
     }, [effectiveUserId, fetchGamificationData])
 
-    // 投稿データをストリーク計算用に変換
+    // 投稿データをストリーク計算用に変換（is_late を追加）
     const submissionsForStreak: SubmissionForStreak[] = useMemo(() => {
         return submissions.map(s => ({
             target_date: s.target_date,
             status: s.status,
             is_revival: s.is_revival ?? false,
+            is_late: s.is_late ?? false,
             type: s.type
         }))
     }, [submissions])
@@ -224,32 +229,33 @@ export function useGamification({ targetUserId, submissions, isRestDay, groupCon
     }, [])
 
     // ストレート達成回数: 常にオンデマンド計算（週単位判定に統一）
+    // getSettingsForDate を渡し、計算器内部で日単位の設定解決を行う
     const perfectWeekCount = useMemo(() => {
-        const defaultTarget = (_date: Date) => gamificationSettings.straight.custom_required_days
-        const weeklyTarget = gamificationSettings.straight.use_target_days
-            ? (getTargetDaysPerWeek ?? defaultTarget)
-            : defaultTarget
+        const defaultTarget = (_date: Date) => 7
 
         return calculatePerfectWeeks(
             filteredSubmissions,
             isRestDay,
-            weeklyTarget,
+            getTargetDaysPerWeek ?? defaultTarget,
             getGroupConfigsForDate,
-            gamificationSettings.straight.allow_revival,
-            gamificationSettings.straight.allow_shield,
+            getSettingsForDate,
             confirmedBeforeDate
         )
-    }, [filteredSubmissions, isRestDay, gamificationSettings, getGroupConfigsForDate, getTargetDaysPerWeek, confirmedBeforeDate])
+    }, [filteredSubmissions, isRestDay, getGroupConfigsForDate, getTargetDaysPerWeek, getSettingsForDate, confirmedBeforeDate])
 
     // シールド残数の最終計算（perfectWeekCount 確定後）
+    // activeVersion からシールド獲得条件を参照
     const shieldStock = useMemo(() => {
         if (!effectiveFrom) return shieldStockFromDB
         if (!gamificationSettings.shield.enabled) return 0
 
+        const conditionType = activeVersion?.condition_type ?? 'straight_count'
+        const straightCount = activeVersion?.straight_count ?? 1
+
         // ストレート達成数からシールド獲得数を計算
         let earnedShields = 0
-        if (gamificationSettings.shield.condition_type === 'straight_count') {
-            const requiredStraights = gamificationSettings.shield.straight_count || 1
+        if (conditionType === 'straight_count') {
+            const requiredStraights = straightCount || 1
             earnedShields = Math.floor(perfectWeekCount / requiredStraights)
         }
         // TODO: monthly_perfect 条件タイプ
@@ -258,7 +264,7 @@ export function useGamification({ targetUserId, submissions, isRestDay, groupCon
         const usedShields = filteredSubmissions.filter(s => s.type === 'shield' && s.status === 'success').length
 
         return Math.max(0, earnedShields - usedShields)
-    }, [effectiveFrom, shieldStockFromDB, gamificationSettings.shield, perfectWeekCount, filteredSubmissions])
+    }, [effectiveFrom, shieldStockFromDB, gamificationSettings.shield, activeVersion, perfectWeekCount, filteredSubmissions])
 
     // effective_from 設定時、計算済みの shield_stock / perfect_week_count を DB に同期する
     // RPC 呼び出し直前にのみ使用する（useEffect での自動同期は行わない）
@@ -466,6 +472,7 @@ export function useGamification({ targetUserId, submissions, isRestDay, groupCon
     return {
         state,
         settings: gamificationSettings,
+        activeVersion,
         loading,
         isShieldDay,
         isRevivalDay,

@@ -4,6 +4,7 @@
  */
 
 import { format, eachDayOfInterval, subDays, addDays, isBefore, startOfDay, startOfWeek } from 'date-fns'
+import { VersionedSettings } from '@/types/gamification.types'
 
 /**
  * 投稿データの最小型
@@ -12,6 +13,7 @@ export interface SubmissionForStreak {
     target_date: string | null
     status: 'success' | 'fail' | 'excused' | null
     is_revival: boolean
+    is_late: boolean
     type: 'video' | 'comment' | 'shield'
 }
 
@@ -78,6 +80,19 @@ function getShieldDates(submissions: SubmissionForStreak[]): Set<string> {
         }
     }
     return shieldDates
+}
+
+/**
+ * 遅刻投稿日の日付セットを生成（shield は除外）
+ */
+function getLateDates(submissions: SubmissionForStreak[]): Set<string> {
+    const lateDates = new Set<string>()
+    for (const s of submissions) {
+        if (s.target_date && s.status === 'success' && s.is_late && s.type !== 'shield') {
+            lateDates.add(s.target_date)
+        }
+    }
+    return lateDates
 }
 
 /**
@@ -181,14 +196,43 @@ export function calculateStreak(
 }
 
 /**
+ * 日付が「有効な達成日」かどうかを判定するヘルパー
+ * 遅刻判定もここで完結し、週レベルの一括失格は行わない
+ */
+function isEffectiveDay(
+    dateStr: string,
+    approvedDates: Set<string>,
+    revivalDates: Set<string>,
+    shieldDates: Set<string>,
+    lateDates: Set<string>,
+    allowRevival: boolean,
+    allowShield: boolean,
+    allowLate: boolean
+): boolean {
+    // 遅刻チェックを最初に行う: allow_late=false の日に遅刻投稿があれば不達成
+    if (!allowLate && lateDates.has(dateStr)) return false
+    if (approvedDates.has(dateStr)) {
+        if (revivalDates.has(dateStr)) {
+            return allowRevival
+        }
+        return true
+    }
+    if (shieldDates.has(dateStr)) {
+        return allowShield
+    }
+    return false
+}
+
+/**
  * ストレート達成回数を週（月〜日）単位で計算
+ * 日単位の設定解決: 週内の各日ごとに getSettingsForDate を呼んで設定を取得
+ * 週の目標日数は週開始日（月曜）の設定で決定（週途中の変更は翌週から反映）
  *
  * @param submissions - 全投稿データ（type='shield' を含む）
  * @param isRestDay - 定休日判定関数
- * @param getWeeklyTarget - 日付から目標日数を返す関数
+ * @param getWeeklyTarget - 日付から目標日数を返す関数（submission_rules 由来）
  * @param getGroupConfigs - 日付からグループ設定を返す関数
- * @param allowRevival - リバイバル日を達成カウントするか
- * @param allowShield - シールド日を達成カウントするか
+ * @param getSettingsForDate - 日付からバージョン管理設定を返す関数
  * @param confirmedBeforeDate - この日付より前の週のみ判定（undefined時は全週）
  */
 export function calculatePerfectWeeks(
@@ -196,13 +240,13 @@ export function calculatePerfectWeeks(
     isRestDay: IsRestDayFn,
     getWeeklyTarget: (date: Date) => number,
     getGroupConfigs: (date: Date) => GroupConfig[],
-    allowRevival: boolean,
-    allowShield: boolean,
+    getSettingsForDate: (date: Date) => VersionedSettings,
     confirmedBeforeDate?: Date
 ): number {
     const approvedDates = getApprovedDates(submissions)
     const revivalDates = getRevivalDates(submissions)
     const shieldDates = getShieldDates(submissions)
+    const lateDates = getLateDates(submissions)
 
     // 全 submissions の target_date から最古日を特定
     const allTargetDates = submissions
@@ -246,6 +290,9 @@ export function calculatePerfectWeeks(
             const dayOfWeek = day.getDay()
             const activeGroupConfigs = getGroupConfigs(day)
 
+            // その日に有効な設定を取得（日単位解決）
+            const daySettings = getSettingsForDate(day)
+
             // グループ日の処理
             let isGroupDay = false
             for (const group of activeGroupConfigs) {
@@ -270,7 +317,11 @@ export function calculatePerfectWeeks(
                     if (groupDateStr < group.effectiveFrom) continue
                     if (group.effectiveTo && groupDateStr >= group.effectiveTo) continue
 
-                    if (isEffectiveDay(groupDateStr, approvedDates, revivalDates, shieldDates, allowRevival, allowShield)) {
+                    // グループ日ごとにその日の設定を取得
+                    const groupDaySettings = getSettingsForDate(groupDate)
+
+                    if (isEffectiveDay(groupDateStr, approvedDates, revivalDates, shieldDates, lateDates,
+                        groupDaySettings.allow_revival, groupDaySettings.allow_shield, groupDaySettings.allow_late)) {
                         groupAchieved++
                     }
                 }
@@ -280,43 +331,27 @@ export function calculatePerfectWeeks(
 
             if (isGroupDay) continue
 
-            // 非グループ日の処理
-            if (isEffectiveDay(dateStr, approvedDates, revivalDates, shieldDates, allowRevival, allowShield)) {
+            // 非グループ日の処理（日単位で設定を適用）
+            if (isEffectiveDay(dateStr, approvedDates, revivalDates, shieldDates, lateDates,
+                daySettings.allow_revival, daySettings.allow_shield, daySettings.allow_late)) {
                 achieved++
             }
         }
 
-        // 目標日数と比較（週内の任意の日から取得）
-        const target = getWeeklyTarget(weekDays[0])
+        // 目標日数は週開始日（月曜）の設定で決定（非遡及的）
+        // weekDays[0] は最初の部分週では月曜でない可能性があるため、明示的に算出
+        const weekMonday = startOfWeek(weekDays[0], { weekStartsOn: 1 })
+        const weekStartSettings = getSettingsForDate(weekMonday)
+        const target = weekStartSettings.use_target_days
+            ? getWeeklyTarget(weekMonday)
+            : weekStartSettings.custom_required_days
+
         if (achieved >= target) {
             perfectWeekCount++
         }
     }
 
     return perfectWeekCount
-}
-
-/**
- * 日付が「有効な達成日」かどうかを判定するヘルパー
- */
-function isEffectiveDay(
-    dateStr: string,
-    approvedDates: Set<string>,
-    revivalDates: Set<string>,
-    shieldDates: Set<string>,
-    allowRevival: boolean,
-    allowShield: boolean
-): boolean {
-    if (approvedDates.has(dateStr)) {
-        if (revivalDates.has(dateStr)) {
-            return allowRevival
-        }
-        return true
-    }
-    if (shieldDates.has(dateStr)) {
-        return allowShield
-    }
-    return false
 }
 
 /**
