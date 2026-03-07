@@ -1721,7 +1721,17 @@ export default function SubmissionSettingsPage() {
 
                                     {/* 参考情報 */}
                                     <div className="text-xs text-muted-foreground border-t pt-3">
-                                        <span>DB記録ベース使用量（参考）: {(bunnyStats.dbStorageUsedBytes / 1024 / 1024 / 1024).toFixed(2)} GB</span>
+                                        <span className="inline-flex items-center gap-1">
+                                            DB記録ベース使用量（参考）: {(bunnyStats.dbStorageUsedBytes / 1024 / 1024 / 1024).toFixed(2)} GB
+                                            <Popover>
+                                                <PopoverTrigger asChild>
+                                                    <Info className="w-3.5 h-3.5 cursor-pointer text-muted-foreground/60" />
+                                                </PopoverTrigger>
+                                                <PopoverContent side="top" className="w-64 p-3 text-xs">
+                                                    <p>アップロード時のオリジナルファイルサイズの合計です。Bunny Streamではエンコード後に圧縮されるため、実際のストレージ使用量（上記）とは異なります。</p>
+                                                </PopoverContent>
+                                            </Popover>
+                                        </span>
                                     </div>
                                 </>
                                 )}
