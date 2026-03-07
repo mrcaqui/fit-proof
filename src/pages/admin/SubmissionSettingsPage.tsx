@@ -1766,7 +1766,7 @@ export default function SubmissionSettingsPage() {
                             </CardTitle>
                             <CardDescription>
                                 1日に複数の動画投稿を求める場合、ここで項目を追加します。（例：スクワット、ベンチプレスなど）<br />
-                                項目がない場合は、通常の「1日1動画」として扱われます。
+                                項目がない場合は、ワークアウト項目は表示されません。日ごとに必要な投稿を管理するには、少なくとも1つの項目を追加してください。
                             </CardDescription>
                         </CardHeader>
                         <CardContent className="space-y-6 pt-6">
@@ -1954,7 +1954,7 @@ export default function SubmissionSettingsPage() {
                                     <div>
                                         <Label className="font-semibold">期限の動作設定</Label>
                                         <p className="text-xs text-muted-foreground mt-1">
-                                            ※ 期限超過マーク表示を選択した場合、その日付の提出期限時刻を過ぎて投稿すると is_late が記録されます（過去日付の投稿でも適用されます）
+                                            ※ 期限超過マーク表示を選択した場合、その日付の提出期限時刻を過ぎて投稿すると is_late が記録されます。過去日付への投稿は、期限時刻に関わらず常に期限超過として記録されます。なお、is_late（期限超過）と is_revival（過去の空白日への復活投稿）は独立した判定です。
                                         </p>
                                     </div>
                                     <div className="space-y-2">
