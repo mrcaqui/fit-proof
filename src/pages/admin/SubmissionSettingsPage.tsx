@@ -10,7 +10,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { NumberStepper } from '@/components/ui/number-stepper'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
-import { Plus, Trash2, Calendar as CalendarIcon, Clock, Gamepad2, HardDrive, Users, ChevronDown, RotateCcw, AlertTriangle } from 'lucide-react'
+import { Plus, Trash2, Calendar as CalendarIcon, Clock, Gamepad2, HardDrive, Users, ChevronDown, RotateCcw, AlertTriangle, Info } from 'lucide-react'
 import {
     Select,
     SelectContent,
@@ -19,6 +19,7 @@ import {
     SelectValue,
 } from "@/components/ui/select"
 import { getBunnyStats, type BunnyStats } from '@/lib/bunny'
+import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover'
 import { cn } from '@/lib/utils'
 import { format, parseISO, max as dateMax } from 'date-fns'
 import { Settings } from 'lucide-react'
@@ -1614,9 +1615,16 @@ export default function SubmissionSettingsPage() {
                                         .sort((a, b) => (b.effective_to ?? '').localeCompare(a.effective_to ?? ''))
                                         .map(v => ({
                                             id: v.id,
-                                            label: `${v.allow_late ? '遅刻許容' : '遅刻不可'} / ${v.allow_revival ? 'リバイバル可' : 'リバイバル不可'} / ${v.allow_shield ? 'シールド可' : 'シールド不可'}`,
+                                            label: '',
                                             effectiveFrom: v.effective_from,
                                             effectiveTo: v.effective_to!,
+                                            details: [
+                                                { key: '達成条件', value: v.condition_type === 'straight_count' ? `連続 ${v.straight_count} 回` : '月間全日' },
+                                                { key: '遅刻', value: v.allow_late ? '許容' : '不可' },
+                                                { key: 'リバイバル', value: v.allow_revival ? '可' : '不可' },
+                                                { key: 'シールド', value: v.allow_shield ? '可' : '不可' },
+                                                { key: '対象日数', value: v.use_target_days ? '自動（目標日数設定）' : `${v.custom_required_days}日` },
+                                            ],
                                         }))
                                     }
                                     onUpdateEffectiveTo={handleUpdateVersionEffectiveTo}
@@ -2328,7 +2336,7 @@ function RuleList({ rules, onDelete, onUpdateEffectiveFrom, onUpdateGroupEffecti
 /** 削除済みアイテム/ルールを折りたたみ表示するアコーディオン */
 function DeletedAccordion({ label, items, onUpdateEffectiveTo, onReactivate, pastSubmissionDays = 0 }: {
     label: string
-    items: { id: number; label: string; effectiveFrom: string; effectiveTo: string }[]
+    items: { id: number; label: string; effectiveFrom: string; effectiveTo: string; details?: { key: string; value: string }[] }[]
     onUpdateEffectiveTo: (id: number, newDate: string) => void
     onReactivate?: (id: number) => void
     pastSubmissionDays?: number
@@ -2351,6 +2359,8 @@ function DeletedAccordion({ label, items, onUpdateEffectiveTo, onReactivate, pas
         b.effectiveTo.localeCompare(a.effectiveTo)
     )
 
+    const hasDetails = items.some(item => item.details && item.details.length > 0)
+
     // ページネーション計算
     const totalPages = Math.max(1, Math.ceil(sortedItems.length / ITEMS_PER_PAGE))
     const safePage = Math.min(currentPage, totalPages)
@@ -2370,10 +2380,15 @@ function DeletedAccordion({ label, items, onUpdateEffectiveTo, onReactivate, pas
             </button>
             {open && (
                 <div className="px-3 pb-3">
+                    <div className="overflow-x-auto">
                     <table className="w-full text-xs">
                         <thead>
                             <tr className="text-muted-foreground border-b">
-                                <th className="text-left py-1 font-medium">名前</th>
+                                {hasDetails ? (
+                                    <th className="py-1 w-10"></th>
+                                ) : (
+                                    <th className="text-left py-1 font-medium">名前</th>
+                                )}
                                 <th className="text-left py-1 font-medium">適用開始</th>
                                 <th className="text-left py-1 font-medium">適用終了</th>
                                 {onReactivate && <th className="text-right py-1 font-medium w-10"></th>}
@@ -2382,7 +2397,33 @@ function DeletedAccordion({ label, items, onUpdateEffectiveTo, onReactivate, pas
                         <tbody>
                             {paginatedItems.map(item => (
                                 <tr key={item.id} className="border-b last:border-0">
-                                    <td className="py-1.5 pr-2 truncate max-w-[120px]">{item.label}</td>
+                                    {hasDetails && item.details ? (
+                                        <td className="py-1.5 text-center">
+                                            <Popover>
+                                                <PopoverTrigger asChild>
+                                                    <Button variant="ghost" size="icon"
+                                                        className="h-6 w-6 text-muted-foreground hover:text-primary">
+                                                        <Info className="w-3.5 h-3.5" />
+                                                    </Button>
+                                                </PopoverTrigger>
+                                                <PopoverContent side="bottom" align="start" className="w-64 p-3">
+                                                    <p className="text-xs font-semibold mb-2">設定内容</p>
+                                                    <table className="w-full text-xs">
+                                                        <tbody>
+                                                            {item.details.map((d, i) => (
+                                                                <tr key={i} className="border-b last:border-0">
+                                                                    <td className="py-1 pr-2 text-muted-foreground whitespace-nowrap">{d.key}</td>
+                                                                    <td className="py-1 font-medium">{d.value}</td>
+                                                                </tr>
+                                                            ))}
+                                                        </tbody>
+                                                    </table>
+                                                </PopoverContent>
+                                            </Popover>
+                                        </td>
+                                    ) : (
+                                        <td className="py-1.5 pr-2 truncate max-w-[120px]">{item.label}</td>
+                                    )}
                                     <td className="py-1.5 pr-2 whitespace-nowrap">{item.effectiveFrom}</td>
                                     <td className="py-1.5">
                                         <Input
@@ -2415,6 +2456,7 @@ function DeletedAccordion({ label, items, onUpdateEffectiveTo, onReactivate, pas
                             ))}
                         </tbody>
                     </table>
+                    </div>
                     {totalPages > 1 && (
                         <div className="flex items-center justify-between pt-2 text-xs text-muted-foreground">
                             <Button variant="ghost" size="sm" className="h-6 px-2 text-xs"
