@@ -210,11 +210,11 @@ export function SwipeableWorkoutView({
           // 未投稿項目（他人のカレンダー閲覧時 / 投稿制限範囲外 / 休息日 / グループ達成済み は表示しない）
           const isDateRestDay = isRestDay(date)
           const isDateGroupFulfilled = isGroupFulfilledForDate(date)
-          const pendingItems = (isViewingOtherUser || !isWithinAllowedRange || isDateRestDay || isDateGroupFulfilled) ? [] : effectiveItems.filter(item => !submittedItemIds.has(item.id))
+          const pendingItems = (!isWithinAllowedRange || isDateRestDay || isDateGroupFulfilled) ? [] : effectiveItems.filter(item => !submittedItemIds.has(item.id))
 
           // シールドボタン表示条件
-          const showShieldApply = !isViewingOtherUser && !hasVideoComment && !isShield && shieldStock > 0 && isWithinPastDays && daysDiff < 0 && !isDateRestDay && !isDateGroupFulfilled
-          const showShieldRemove = !isViewingOtherUser && isShield && isWithinPastDays
+          const showShieldApply = !hasVideoComment && !isShield && shieldStock > 0 && isWithinPastDays && daysDiff < 0 && !isDateRestDay && !isDateGroupFulfilled
+          const showShieldRemove = isShield && isWithinPastDays
 
           const hasContent = videoCommentSubmissions.length > 0 || pendingItems.length > 0 || showShieldApply || showShieldRemove || isShield
 
@@ -252,7 +252,12 @@ export function SwipeableWorkoutView({
                   </div>
                   {isMain && showShieldRemove && (
                     <button
-                      className="absolute top-1.5 right-1.5 text-[11px] text-muted-foreground/70 hover:text-destructive transition-colors"
+                      className={`absolute top-1.5 right-1.5 text-[11px] transition-colors ${
+                        isViewingOtherUser
+                          ? 'text-muted-foreground/40 pointer-events-none'
+                          : 'text-muted-foreground/70 hover:text-destructive'
+                      }`}
+                      disabled={isViewingOtherUser}
                       onClick={async () => {
                         const dateStr = format(date, 'yyyy-MM-dd')
                         const success = await onRemoveShield?.(dateStr)
@@ -275,6 +280,7 @@ export function SwipeableWorkoutView({
                 <Button
                   variant="outline"
                   className="flex items-center gap-2 w-full justify-center"
+                  disabled={isViewingOtherUser}
                   onClick={async () => {
                     const dateStr = format(date, 'yyyy-MM-dd')
                     const success = await onApplyShield?.(dateStr)
@@ -353,11 +359,12 @@ export function SwipeableWorkoutView({
               {/* 未投稿項目 */}
               {isMain && pendingItems.map((item) => (
                 <PendingUploadCard
-                  key={`pending-${item.id}`}
+                  key={`pending-${item.id}-${format(date, 'yyyy-MM-dd')}`}
                   item={item}
                   targetDate={date}
                   onSuccess={onUploadSuccess}
                   isLate={isLate}
+                  readOnly={isViewingOtherUser}
                 />
               ))}
             </div>

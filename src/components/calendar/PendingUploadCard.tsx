@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { Database } from '@/types/database.types'
 import * as tus from 'tus-js-client'
 import { createBunnyVideo, deleteBunnyVideo, waitForBunnyProcessing } from '@/lib/bunny'
@@ -26,32 +26,33 @@ interface PendingUploadCardProps {
     targetDate: Date
     onSuccess?: () => void
     isLate?: boolean
+    readOnly?: boolean
 }
 
-export function PendingUploadCard({ item, targetDate, onSuccess, isLate = false }: PendingUploadCardProps) {
+export function PendingUploadCard({ item, targetDate, onSuccess, isLate = false, readOnly = false }: PendingUploadCardProps) {
     const { user } = useAuth()
     const fileInputRef = useRef<HTMLInputElement>(null)
-    const [state, setState] = useState<{
-        file: File | null
-        thumbnail: string | null
-        duration: number | null
-        progress: number
-        error: string | null
-        success: boolean
-        isUploading: boolean
-        hash: string | null
-        phase: 'uploading' | 'verifying' | null
-    }>({
-        file: null,
-        thumbnail: null,
-        duration: null,
+
+    const initialState = {
+        file: null as File | null,
+        thumbnail: null as string | null,
+        duration: null as number | null,
         progress: 0,
-        error: null,
+        error: null as string | null,
         success: false,
         isUploading: false,
-        hash: null,
-        phase: null,
-    })
+        hash: null as string | null,
+        phase: null as 'uploading' | 'verifying' | null,
+    }
+
+    const [state, setState] = useState(initialState)
+
+    useEffect(() => {
+        if (readOnly) {
+            updateState(initialState)
+            if (fileInputRef.current) fileInputRef.current.value = ''
+        }
+    }, [readOnly])
 
     const updateState = (newState: Partial<typeof state>) => {
         setState(prev => ({ ...prev, ...newState }))
@@ -83,6 +84,7 @@ export function PendingUploadCard({ item, targetDate, onSuccess, isLate = false 
     }
 
     const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (readOnly) return
         const selectedFile = e.target.files?.[0]
         updateState({ error: null, success: false, thumbnail: null, duration: null })
 
@@ -129,6 +131,7 @@ export function PendingUploadCard({ item, targetDate, onSuccess, isLate = false 
     }
 
     const handleClearFile = () => {
+        if (readOnly) return
         updateState({ file: null, thumbnail: null, duration: null, error: null })
         if (fileInputRef.current) {
             fileInputRef.current.value = ''
@@ -136,6 +139,7 @@ export function PendingUploadCard({ item, targetDate, onSuccess, isLate = false 
     }
 
     const handleUpload = async () => {
+        if (readOnly) return
         if (!state.file || !user) return
 
         updateState({ isUploading: true, progress: 0, error: null, phase: 'uploading' })
@@ -292,7 +296,7 @@ export function PendingUploadCard({ item, targetDate, onSuccess, isLate = false 
                         {item.name}
                     </h4>
                     <div className="flex items-center gap-1">
-                        {state.file && !state.isUploading && (
+                        {!readOnly && state.file && !state.isUploading && (
                             <>
                                 <Button
                                     variant="ghost"
@@ -318,19 +322,19 @@ export function PendingUploadCard({ item, targetDate, onSuccess, isLate = false 
                         onChange={handleFileSelect}
                         className="hidden"
                         id={`file-input-${item.id}`}
-                        disabled={state.isUploading}
+                        disabled={readOnly || state.isUploading}
                     />
                     <label
                         htmlFor={`file-input-${item.id}`}
-                        className={`cursor-pointer flex items-center gap-3 p-3 rounded-lg border border-dashed transition-colors ${state.file ? 'bg-muted/30 border-primary/30' : 'hover:bg-muted/50 border-muted-foreground/20'
+                        className={`${readOnly ? 'cursor-default' : 'cursor-pointer'} flex items-center gap-3 p-3 rounded-lg border border-dashed transition-colors ${state.file ? 'bg-muted/30 border-primary/30' : readOnly ? 'border-muted-foreground/20' : 'hover:bg-muted/50 border-muted-foreground/20'
                             }`}
                     >
                         {!state.file && (
                             <>
                                 <Film className="h-6 w-6 text-muted-foreground shrink-0" />
                                 <div className="flex flex-col gap-0.5">
-                                    <span className="text-xs font-medium">クリックして動画を選択</span>
-                                    <span className="text-[9px] text-muted-foreground">{`${FORMAT_LABEL} / ${SIZE_LABEL}以内`}</span>
+                                    <span className="text-xs font-medium">{readOnly ? '（閲覧専用）' : 'クリックして動画を選択'}</span>
+                                    {!readOnly && <span className="text-[9px] text-muted-foreground">{`${FORMAT_LABEL} / ${SIZE_LABEL}以内`}</span>}
                                 </div>
                             </>
                         )}
