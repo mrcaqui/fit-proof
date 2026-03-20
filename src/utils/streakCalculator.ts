@@ -57,6 +57,20 @@ function getApprovedDates(submissions: SubmissionForStreak[]): Set<string> {
 }
 
 /**
+ * 投稿済み日付セットを生成（fail 以外、shield 除外）
+ * ストリーク計算用: 承認有無に関わらず投稿があれば対象
+ */
+function getSubmittedDates(submissions: SubmissionForStreak[]): Set<string> {
+    const dates = new Set<string>()
+    for (const s of submissions) {
+        if (s.target_date && s.status !== 'fail' && s.type !== 'shield') {
+            dates.add(s.target_date)
+        }
+    }
+    return dates
+}
+
+/**
  * リバイバル日の日付セットを生成（shield は除外）
  */
 function getRevivalDates(submissions: SubmissionForStreak[]): Set<string> {
@@ -111,16 +125,21 @@ export function calculateStreak(
     effectiveFrom?: Date,
     getGroupConfigs?: (date: Date) => GroupConfig[]
 ): StreakResult {
-    const approvedDates = getApprovedDates(submissions)
+    const submittedDates = getSubmittedDates(submissions)
     const revivalDates = getRevivalDates(submissions)
     const shieldDates = getShieldDates(submissions)
 
     const today = startOfDay(new Date())
+    const todayStr = format(today, 'yyyy-MM-dd')
     let consecutiveDays = 0
 
-    // 過去90日間を走査（十分な期間）
+    // 当日に何らかの記録（fail含む）があれば today から走査し判定対象にする
+    // 記録が一切なければ yesterday から走査（当日は「進行中」扱い）
+    const hasTodayRecord = submissions.some(s => s.target_date === todayStr)
+    const scanEnd = hasTodayRecord ? today : subDays(today, 1)
+
     const startDate = subDays(today, 90)
-    const days = eachDayOfInterval({ start: startDate, end: today })
+    const days = eachDayOfInterval({ start: startDate, end: scanEnd })
 
     // フェーズA: グループ事前計算（正順）
     // weekKey: 月曜始まりの週開始日（yyyy-MM-dd）。土日を同一週に含めるため weekStartsOn: 1 を使用。
@@ -137,7 +156,7 @@ export function calculateStreak(
         const activeGroupConfigs = getGroupConfigs ? getGroupConfigs(day) : []
         for (const group of activeGroupConfigs) {
             if (!group.daysOfWeek.includes(dayOfWeek)) continue
-            if (approvedDates.has(dateStr) || shieldDates.has(dateStr)) {
+            if (submittedDates.has(dateStr) || shieldDates.has(dateStr)) {
                 const mapKey = `${weekKey}-${group.groupId}`
                 groupApprovalCountMap.set(mapKey, (groupApprovalCountMap.get(mapKey) ?? 0) + 1)
             }
@@ -169,19 +188,19 @@ export function calculateStreak(
             if (!group.daysOfWeek.includes(dayOfWeek)) continue
             const mapKey = `${weekKey}-${group.groupId}`
             const totalFulfilled = groupApprovalCountMap.get(mapKey) ?? 0
-            if (!approvedDates.has(dateStr) && !shieldDates.has(dateStr) && totalFulfilled >= group.requiredCount) {
+            if (!submittedDates.has(dateStr) && !shieldDates.has(dateStr) && totalFulfilled >= group.requiredCount) {
                 isGroupSkipDay = true
                 break
             }
         }
         if (isGroupSkipDay) continue
 
-        const hasApproval = approvedDates.has(dateStr)
+        const hasSubmission = submittedDates.has(dateStr)
 
-        if (hasApproval) {
+        if (hasSubmission) {
             consecutiveDays++
         } else if (shieldDates.has(dateStr)) {
-            // シールド適用日: ストリークを途切れさせないがカウントは増やさない（休息日と同じ扱い）
+            // シールド日: ストリークを途切れさせないがカウントしない（v1.24.1 の動作を維持）
             continue
         } else {
             break // ストリーク終了
