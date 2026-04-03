@@ -1,5 +1,5 @@
 import { Link, useLocation } from "react-router-dom"
-import { Calendar, LogOut, Settings, Users, Menu, ChevronLeft, ChevronRight } from "lucide-react"
+import { Calendar, LogOut, Settings, Users, Menu, ChevronLeft, ChevronRight, FileText } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -39,6 +39,11 @@ export function Sidebar({ className, isCollapsed, setIsCollapsed, unreviewedCoun
             title: "Users",
             icon: Users,
             href: "/admin/users",
+        })
+        items.push({
+            title: "Upload Logs",
+            icon: FileText,
+            href: "/admin/upload-logs",
         })
     }
 
@@ -160,6 +165,11 @@ export function MobileNav({ unreviewedCount = 0 }: { unreviewedCount?: number })
             title: "Users",
             icon: Users,
             href: "/admin/users",
+        })
+        items.push({
+            title: "Upload Logs",
+            icon: FileText,
+            href: "/admin/upload-logs",
         })
     }
 

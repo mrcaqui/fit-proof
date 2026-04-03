@@ -1,14 +1,12 @@
 import { useState, useRef, useEffect } from 'react'
 import { Database } from '@/types/database.types'
-import * as tus from 'tus-js-client'
-import { createBunnyVideo, deleteBunnyVideo, waitForBunnyProcessing } from '@/lib/bunny'
-import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/context/AuthContext'
 import { generateThumbnail } from '@/utils/thumbnail'
+import { executeUpload, UploadError, recheckVideoStatus, continueAfterRecheck } from '@/lib/upload-core'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
-import { Upload, Film, AlertCircle, X } from 'lucide-react'
+import { Upload, Film, AlertCircle, X, RefreshCw, RotateCcw } from 'lucide-react'
 import { format } from 'date-fns'
 import {
   MAX_FILE_SIZE,
@@ -29,23 +27,32 @@ interface PendingUploadCardProps {
     readOnly?: boolean
 }
 
+interface UploadState {
+    file: File | null
+    thumbnail: string | null
+    duration: number | null
+    progress: number
+    error: string | null
+    success: boolean
+    isUploading: boolean
+    hash: string | null
+    phase: 'uploading' | 'verifying' | 'saving' | null
+    isRetryable: boolean
+    isUncertain: boolean
+    pendingVideoId: string | null
+    isRechecking: boolean
+}
+
+const initialState: UploadState = {
+    file: null, thumbnail: null, duration: null, progress: 0, error: null,
+    success: false, isUploading: false, hash: null, phase: null,
+    isRetryable: false, isUncertain: false, pendingVideoId: null, isRechecking: false,
+}
+
 export function PendingUploadCard({ item, targetDate, onSuccess, isLate = false, readOnly = false }: PendingUploadCardProps) {
     const { user } = useAuth()
     const fileInputRef = useRef<HTMLInputElement>(null)
-
-    const initialState = {
-        file: null as File | null,
-        thumbnail: null as string | null,
-        duration: null as number | null,
-        progress: 0,
-        error: null as string | null,
-        success: false,
-        isUploading: false,
-        hash: null as string | null,
-        phase: null as 'uploading' | 'verifying' | null,
-    }
-
-    const [state, setState] = useState(initialState)
+    const [state, setState] = useState<UploadState>(initialState)
 
     useEffect(() => {
         if (readOnly) {
@@ -54,7 +61,7 @@ export function PendingUploadCard({ item, targetDate, onSuccess, isLate = false,
         }
     }, [readOnly])
 
-    const updateState = (newState: Partial<typeof state>) => {
+    const updateState = (newState: Partial<UploadState>) => {
         setState(prev => ({ ...prev, ...newState }))
     }
 
@@ -86,7 +93,7 @@ export function PendingUploadCard({ item, targetDate, onSuccess, isLate = false,
     const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
         if (readOnly) return
         const selectedFile = e.target.files?.[0]
-        updateState({ error: null, success: false, thumbnail: null, duration: null })
+        updateState({ error: null, success: false, thumbnail: null, duration: null, isRetryable: false, isUncertain: false, pendingVideoId: null })
 
         if (!selectedFile) return
 
@@ -109,22 +116,13 @@ export function PendingUploadCard({ item, targetDate, onSuccess, isLate = false,
             ]
 
             if (selectedFile.size <= HASH_THRESHOLD) {
-                tasks.push(
-                    calculateHash(selectedFile).catch(err => {
-                        console.error('Hash calculation failed:', err)
-                        return null
-                    })
-                )
+                tasks.push(calculateHash(selectedFile).catch(err => { console.error('Hash calculation failed:', err); return null }))
             } else {
                 tasks.push(Promise.resolve(null))
             }
 
             const [thumbUrl, duration, hash] = await Promise.all(tasks)
-            updateState({
-                thumbnail: thumbUrl,
-                duration,
-                hash: hash || null,
-            })
+            updateState({ thumbnail: thumbUrl, duration, hash: hash || null })
         } catch (err) {
             console.error('Metadata extraction failed:', err)
         }
@@ -132,161 +130,116 @@ export function PendingUploadCard({ item, targetDate, onSuccess, isLate = false,
 
     const handleClearFile = () => {
         if (readOnly) return
-        updateState({ file: null, thumbnail: null, duration: null, error: null })
-        if (fileInputRef.current) {
-            fileInputRef.current.value = ''
-        }
+        updateState({ file: null, thumbnail: null, duration: null, error: null, isRetryable: false, isUncertain: false, pendingVideoId: null })
+        if (fileInputRef.current) fileInputRef.current.value = ''
     }
 
     const handleUpload = async () => {
         if (readOnly) return
         if (!state.file || !user) return
 
-        updateState({ isUploading: true, progress: 0, error: null, phase: 'uploading' })
-
-        let bunnyVideoId: string | null = null
+        updateState({
+            isUploading: true, progress: 0, error: null, phase: 'uploading',
+            isRetryable: false, isUncertain: false, pendingVideoId: null,
+        })
 
         try {
             const targetDateStr = format(targetDate, 'yyyy-MM-dd')
 
-            // 既存のレコードを検索
-            const { data: existing } = await supabase
-                .from('submissions')
-                .select('id, bunny_video_id')
-                .match({
-                    user_id: user.id,
-                    target_date: targetDateStr,
-                    submission_item_id: item.id
-                }) as { data: { id: number, bunny_video_id: string | null }[] | null }
-
-            // Bunny にビデオ作成 + TUS 認証情報取得
-            const bunnyResult = await createBunnyVideo(state.file.name)
-            bunnyVideoId = bunnyResult.videoId
-
-            // TUS アップロード
-            await new Promise<void>((resolve, reject) => {
-                const upload = new tus.Upload(state.file!, {
-                    endpoint: bunnyResult.tusEndpoint,
-                    retryDelays: [0, 1000, 3000, 5000],
-                    headers: {
-                        AuthorizationSignature: bunnyResult.authorizationSignature,
-                        AuthorizationExpire: String(bunnyResult.authorizationExpire),
-                        VideoId: bunnyResult.videoId,
-                        LibraryId: bunnyResult.libraryId,
-                    },
-                    metadata: { filetype: state.file!.type, title: state.file!.name },
-                    removeFingerprintOnSuccess: true,
-                    onError: (error) => reject(error),
-                    onProgress: (bytesUploaded, bytesTotal) => {
-                        updateState({ progress: Math.round((bytesUploaded / bytesTotal) * 100) })
-                    },
-                    onSuccess: () => resolve(),
-                })
-                upload.findPreviousUploads().then((previousUploads) => {
-                    if (previousUploads.length > 0) {
-                        upload.resumeFromPreviousUpload(previousUploads[0])
-                    }
-                    upload.start()
-                }).catch(() => {
-                    upload.start()
-                })
+            await executeUpload({
+                file: state.file,
+                userId: user.id,
+                targetDate: targetDateStr,
+                submissionItemId: item.id,
+                thumbnail: state.thumbnail,
+                duration: state.duration,
+                hash: state.hash,
+                isLate,
+                onProgress: (progress) => updateState({ progress }),
+                onPhaseChange: (phase) => updateState({ phase }),
             })
 
-            // Bunny側の受領確認
-            updateState({ progress: 100, phase: 'verifying' })
-
-            const processingResult = await waitForBunnyProcessing(bunnyResult.videoId, {
-                intervalMs: 2500,
-                timeoutMs: 60000,
-            })
-
-            if (!processingResult.success) {
-                // status -1 はステータス取得の連続失敗（一時的障害の可能性）→ 動画は削除せず残す
-                if (processingResult.status !== -1) {
-                    await deleteBunnyVideo(bunnyResult.videoId).catch(e =>
-                        console.error('Bunny cleanup after processing failure:', e)
-                    )
-                    bunnyVideoId = null
-                }
-                const statusMsg = processingResult.status === 5
-                    ? 'Bunny側でエラーが発生しました。再度お試しください。'
-                    : processingResult.status === 6
-                    ? 'アップロードに失敗しました。再度お試しください。'
-                    : 'アップロードの確認がタイムアウトしました。再度お試しください。'
-                updateState({ error: statusMsg, isUploading: false, phase: null })
-                return
-            }
-
-            // 既存レコードがある場合は replace_submissions RPC でアトミック置換
-            if (existing && existing.length > 0) {
-                const { data: rpcData, error: rpcError } = await supabase.rpc('replace_submissions', {
-                    p_user_id: user.id,
-                    p_target_date: targetDateStr,
-                    p_submission_item_id: item.id,
-                    p_bunny_video_id: bunnyResult.videoId,
-                    p_video_size: state.file.size,
-                    p_video_hash: state.hash,
-                    p_duration: state.duration ? Math.round(state.duration) : null,
-                    p_thumbnail_url: state.thumbnail || null,
-                    p_file_name: state.file.name,
-                    p_is_late: isLate
-                })
-
-                if (rpcError) {
-                    await deleteBunnyVideo(bunnyResult.videoId).catch(e => console.error('Bunny cleanup failed:', e))
-                    throw new Error('Failed to save submission record')
-                }
-
-                if (rpcData?.[0]?.old_bunny_video_ids) {
-                    for (const oldId of rpcData[0].old_bunny_video_ids) {
-                        await deleteBunnyVideo(oldId).catch(e => console.error('Old video cleanup failed:', e))
-                    }
-                }
-            } else {
-                // 新規 INSERT
-                const { error: dbError } = await supabase
-                    .from('submissions')
-                    .insert({
-                        user_id: user.id,
-                        type: 'video' as const,
-                        bunny_video_id: bunnyResult.videoId,
-                        thumbnail_url: state.thumbnail || null,
-                        status: null,
-                        target_date: targetDateStr,
-                        submission_item_id: item.id,
-                        file_name: state.file.name,
-                        duration: state.duration ? Math.round(state.duration) : null,
-                        is_late: isLate,
-                        video_size: state.file.size,
-                        video_hash: state.hash
-                    } as any)
-
-                if (dbError) {
-                    await deleteBunnyVideo(bunnyResult.videoId).catch(e => console.error('Bunny cleanup failed:', e))
-                    throw new Error('Failed to save submission record')
-                }
-            }
-
-            updateState({ success: true, file: null, thumbnail: null })
-            if (fileInputRef.current) {
-                fileInputRef.current.value = ''
-            }
+            updateState({ success: true, file: null, thumbnail: null, isUploading: false, phase: null })
+            if (fileInputRef.current) fileInputRef.current.value = ''
             onSuccess?.()
         } catch (err) {
-            console.error('Upload failed:', err)
-            if (bunnyVideoId) {
-                await deleteBunnyVideo(bunnyVideoId).catch(e => console.error('Bunny cleanup failed:', e))
+            if (err instanceof UploadError) {
+                updateState({
+                    error: err.userMessage,
+                    isUploading: false,
+                    phase: null,
+                    isRetryable: err.isRetryable,
+                    isUncertain: err.isUncertain,
+                    pendingVideoId: err.pendingVideoId ?? null,
+                })
+            } else {
+                console.error('Upload failed:', err)
+                updateState({ error: 'アップロードに失敗しました。', isUploading: false, phase: null })
             }
-            updateState({ error: 'アップロードに失敗しました。', isUploading: false })
-        } finally {
-            updateState({ isUploading: false })
         }
     }
 
-    // アップロード成功時は何も表示しない（WorkoutCardに置き換わる）
-    if (state.success) {
-        return null
+    const handleRecheck = async () => {
+        if (!state.pendingVideoId || !user || !state.file) return
+
+        updateState({ isRechecking: true, error: null })
+
+        try {
+            const result = await recheckVideoStatus(state.pendingVideoId)
+
+            if (result.outcome === 'ready') {
+                const targetDateStr = format(targetDate, 'yyyy-MM-dd')
+
+                await continueAfterRecheck({
+                    videoId: state.pendingVideoId,
+                    userId: user.id,
+                    targetDate: targetDateStr,
+                    submissionItemId: item.id,
+                    file: state.file,
+                    thumbnail: state.thumbnail,
+                    duration: state.duration,
+                    hash: state.hash,
+                    isLate,
+                })
+
+                updateState({
+                    success: true, file: null, thumbnail: null,
+                    isRechecking: false, isUncertain: false, pendingVideoId: null,
+                })
+                if (fileInputRef.current) fileInputRef.current.value = ''
+                onSuccess?.()
+            } else if (result.outcome === 'failed') {
+                updateState({
+                    error: 'CDN側でエラーが確認されました。再度アップロードしてください。',
+                    isRechecking: false, isUncertain: false, pendingVideoId: null,
+                    isRetryable: false,
+                })
+            } else {
+                updateState({
+                    error: 'まだ処理中です。しばらくお待ちください。',
+                    isRechecking: false, isUncertain: true,
+                })
+            }
+        } catch (err) {
+            console.error('Recheck failed:', err)
+            updateState({
+                error: '状態の確認に失敗しました。再度お試しください。',
+                isRechecking: false, isUncertain: true,
+            })
+        }
     }
+
+    const getPhaseLabel = (phase: UploadState['phase'], progress: number) => {
+        switch (phase) {
+            case 'uploading': return progress === 0 ? 'アップロード準備中...' : `アップロード中...`
+            case 'verifying': return '処理を確認中...'
+            case 'saving': return '保存中...'
+            default: return 'アップロード中...'
+        }
+    }
+
+    // Hide on success (replaced by WorkoutCard)
+    if (state.success) return null
 
     return (
         <Card className="overflow-hidden border-2 border-dashed shadow-sm transition-all duration-200 border-muted-foreground/20 bg-card/50 hover:border-primary/30">
@@ -296,7 +249,7 @@ export function PendingUploadCard({ item, targetDate, onSuccess, isLate = false,
                         {item.name}
                     </h4>
                     <div className="flex items-center gap-1">
-                        {!readOnly && state.file && !state.isUploading && (
+                        {!readOnly && state.file && !state.isUploading && !state.isRechecking && (
                             <>
                                 <Button
                                     variant="ghost"
@@ -322,7 +275,7 @@ export function PendingUploadCard({ item, targetDate, onSuccess, isLate = false,
                         onChange={handleFileSelect}
                         className="hidden"
                         id={`file-input-${item.id}`}
-                        disabled={readOnly || state.isUploading}
+                        disabled={readOnly || state.isUploading || state.isRechecking}
                     />
                     <label
                         htmlFor={`file-input-${item.id}`}
@@ -364,18 +317,28 @@ export function PendingUploadCard({ item, targetDate, onSuccess, isLate = false,
                         )}
                     </label>
 
-                    {state.isUploading && (
+                    {(state.isUploading || state.isRechecking) && (
                         <div className="absolute inset-0 bg-background/80 flex flex-col items-center justify-center p-3 rounded-lg z-10 backdrop-blur-sm">
-                            {state.phase === 'verifying' ? (
+                            {state.isRechecking ? (
                                 <>
                                     <div className="h-6 w-6 rounded-full border-2 border-primary/30
                                                     border-t-primary animate-spin mb-1.5" />
-                                    <span className="text-[10px] font-medium animate-pulse">処理を確認中...</span>
+                                    <span className="text-[10px] font-medium animate-pulse">状態を確認中...</span>
+                                </>
+                            ) : state.phase === 'verifying' || state.phase === 'saving' ? (
+                                <>
+                                    <div className="h-6 w-6 rounded-full border-2 border-primary/30
+                                                    border-t-primary animate-spin mb-1.5" />
+                                    <span className="text-[10px] font-medium animate-pulse">
+                                        {getPhaseLabel(state.phase, state.progress)}
+                                    </span>
                                 </>
                             ) : (
                                 <>
                                     <Progress value={state.progress} className="w-full h-1.5 mb-1.5" />
-                                    <span className="text-[10px] font-medium animate-pulse">アップロード中...</span>
+                                    <span className="text-[10px] font-medium animate-pulse">
+                                        {getPhaseLabel(state.phase, state.progress)}
+                                    </span>
                                 </>
                             )}
                         </div>
@@ -383,8 +346,33 @@ export function PendingUploadCard({ item, targetDate, onSuccess, isLate = false,
                 </div>
 
                 {state.error && (
-                    <div className="flex items-center gap-1 text-destructive text-[10px] font-medium mt-2">
-                        <AlertCircle className="h-3 w-3" /> {state.error}
+                    <div className="space-y-1.5 mt-2">
+                        <div className="flex items-center gap-1 text-destructive text-[10px] font-medium">
+                            <AlertCircle className="h-3 w-3 shrink-0" /> {state.error}
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                            {state.isUncertain && state.pendingVideoId && (
+                                <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-6 text-[10px] px-2"
+                                    onClick={handleRecheck}
+                                    disabled={state.isRechecking}
+                                >
+                                    <RefreshCw className="w-2.5 h-2.5 mr-1" /> 状態を再確認
+                                </Button>
+                            )}
+                            {state.isRetryable && state.file && (
+                                <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-6 text-[10px] px-2"
+                                    onClick={handleUpload}
+                                >
+                                    <RotateCcw className="w-2.5 h-2.5 mr-1" /> 再試行
+                                </Button>
+                            )}
+                        </div>
                     </div>
                 )}
             </CardContent>

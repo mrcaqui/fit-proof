@@ -24,6 +24,20 @@ export const FORMAT_LABEL = 'MP4, MOV, WebM, MKV, AVI, 3GP, TS等'
 
 export const SIZE_LABEL = '2GB'
 
+// --- Retry & Timeout ---
+
+export const BUNNY_CREATE_MAX_ATTEMPTS = 3
+export const BUNNY_CREATE_RETRY_DELAYS = [0, 2000, 5000]
+export const MIN_PROCESSING_TIMEOUT_MS = 60_000
+export const MAX_PROCESSING_TIMEOUT_MS = 300_000
+export const PROCESSING_TIMEOUT_BYTES_PER_SEC = 500 * 1024
+
+/** Calculate processing timeout based on file size */
+export function getProcessingTimeout(fileSize: number): number {
+  const dynamic = Math.round((fileSize / PROCESSING_TIMEOUT_BYTES_PER_SEC) * 1000)
+  return Math.min(Math.max(dynamic, MIN_PROCESSING_TIMEOUT_MS), MAX_PROCESSING_TIMEOUT_MS)
+}
+
 export function isAllowedVideoFile(file: File): boolean {
   if (file.type && file.type !== 'application/octet-stream') {
     return ALLOWED_MIME_TYPES.includes(file.type)
