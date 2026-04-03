@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { Database } from "@/types/database.types"
 import { useAuth } from '@/context/AuthContext'
 import { generateThumbnail } from '@/utils/thumbnail'
+import { calculateFileHash } from '@/utils/hash'
 import { executeUpload, UploadError, recheckVideoStatus, continueAfterRecheck } from '@/lib/upload-core'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
@@ -10,7 +11,6 @@ import { format } from 'date-fns'
 import { ja } from 'date-fns/locale'
 import {
   MAX_FILE_SIZE,
-  HASH_THRESHOLD,
   ACCEPT_ATTRIBUTE,
   FORMAT_LABEL,
   SIZE_LABEL,
@@ -36,6 +36,7 @@ interface ItemUploadState {
     isUploading: boolean
     hash: string | null
     phase: 'uploading' | 'verifying' | 'saving' | null
+    isPreparing: boolean
     // For uncertain state (status -1)
     isRetryable: boolean
     isUncertain: boolean
@@ -45,7 +46,7 @@ interface ItemUploadState {
 
 const defaultState: ItemUploadState = {
     file: null, thumbnail: null, duration: null, progress: 0, error: null,
-    success: false, isUploading: false, hash: null, phase: null,
+    success: false, isUploading: false, hash: null, phase: null, isPreparing: false,
     isRetryable: false, isUncertain: false, pendingVideoId: null, isRechecking: false,
 }
 
@@ -53,9 +54,15 @@ export function UploadModal({ targetDate, onClose, onSuccess, items, completedSu
     const { user } = useAuth()
     const [uploadingState, setUploadingState] = useState<Record<number | string, ItemUploadState>>({})
     const fileInputRefs = useRef<Record<number | string, HTMLInputElement | null>>({})
+    const fileSelectCounterRef = useRef<Record<number | string, number>>({})
 
     useEffect(() => {
-        if (targetDate) setUploadingState({})
+        if (targetDate) {
+            setUploadingState({})
+            Object.keys(fileSelectCounterRef.current).forEach(key => {
+                fileSelectCounterRef.current[key]++
+            })
+        }
     }, [targetDate])
 
     if (!targetDate) return null
@@ -79,13 +86,6 @@ export function UploadModal({ targetDate, onClose, onSuccess, items, completedSu
         })
     }
 
-    const calculateHash = async (file: File): Promise<string> => {
-        const arrayBuffer = await file.arrayBuffer()
-        const hashBuffer = await crypto.subtle.digest('SHA-256', arrayBuffer)
-        const hashArray = Array.from(new Uint8Array(hashBuffer))
-        return hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
-    }
-
     const formatDuration = (seconds: number) => {
         const mins = Math.floor(seconds / 60)
         const secs = Math.floor(seconds % 60)
@@ -94,6 +94,8 @@ export function UploadModal({ targetDate, onClose, onSuccess, items, completedSu
 
     const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>, itemId: number | string) => {
         const selectedFile = e.target.files?.[0]
+        const counter = (fileSelectCounterRef.current[itemId] || 0) + 1
+        fileSelectCounterRef.current[itemId] = counter
         updateState(itemId, { error: null, success: false, thumbnail: null, duration: null, isRetryable: false, isUncertain: false, pendingVideoId: null })
 
         if (!selectedFile) return
@@ -108,24 +110,23 @@ export function UploadModal({ targetDate, onClose, onSuccess, items, completedSu
             return
         }
 
-        updateState(itemId, { file: selectedFile, thumbnail: null, duration: null, error: null, success: false })
+        updateState(itemId, { file: selectedFile, thumbnail: null, duration: null, error: null, success: false, isPreparing: true })
 
         try {
             const tasks: Promise<any>[] = [
                 generateThumbnail(selectedFile).catch(err => { console.error('Thumbnail generation failed:', err); return null }),
                 getVideoDuration(selectedFile).catch(err => { console.error('Duration extraction failed:', err); return null }),
+                calculateFileHash(selectedFile),
             ]
 
-            if (selectedFile.size <= HASH_THRESHOLD) {
-                tasks.push(calculateHash(selectedFile).catch(err => { console.error('Hash calculation failed:', err); return null }))
-            } else {
-                tasks.push(Promise.resolve(null))
-            }
-
             const [thumbUrl, duration, hash] = await Promise.all(tasks)
-            updateState(itemId, { thumbnail: thumbUrl, duration, hash: hash || null })
+            if (fileSelectCounterRef.current[itemId] !== counter) return
+            updateState(itemId, { thumbnail: thumbUrl, duration, hash: hash || null, isPreparing: false })
         } catch (err) {
             console.error('Metadata extraction failed:', err)
+            if (fileSelectCounterRef.current[itemId] === counter) {
+                updateState(itemId, { isPreparing: false })
+            }
         }
     }
 
@@ -267,7 +268,7 @@ export function UploadModal({ targetDate, onClose, onSuccess, items, completedSu
                             </p>
                         )}
                     </div>
-                    {state.file && !state.isUploading && !state.success && !state.isRechecking && (
+                    {state.file && !state.isUploading && !state.success && !state.isRechecking && !state.isPreparing && (
                         <Button size="sm" onClick={() => handleUpload(itemId)} className="h-8">
                             <Upload className="w-3 h-3 mr-1" /> アップロード
                         </Button>
@@ -321,7 +322,7 @@ export function UploadModal({ targetDate, onClose, onSuccess, items, completedSu
                                         )}
                                     </div>
                                     <p className="text-[9px] text-primary font-bold animate-pulse mt-1">
-                                        {!state.thumbnail ? '読み込み中...' : 'アップロード準備完了'}
+                                        {state.isPreparing ? '読み込み中...' : 'アップロード準備完了'}
                                     </p>
                                 </div>
                             </div>

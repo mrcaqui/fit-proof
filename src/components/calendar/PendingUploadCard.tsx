@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { Database } from '@/types/database.types'
 import { useAuth } from '@/context/AuthContext'
 import { generateThumbnail } from '@/utils/thumbnail'
+import { calculateFileHash } from '@/utils/hash'
 import { executeUpload, UploadError, recheckVideoStatus, continueAfterRecheck } from '@/lib/upload-core'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -10,7 +11,6 @@ import { Upload, Film, AlertCircle, X, RefreshCw, RotateCcw } from 'lucide-react
 import { format } from 'date-fns'
 import {
   MAX_FILE_SIZE,
-  HASH_THRESHOLD,
   ACCEPT_ATTRIBUTE,
   FORMAT_LABEL,
   SIZE_LABEL,
@@ -37,6 +37,7 @@ interface UploadState {
     isUploading: boolean
     hash: string | null
     phase: 'uploading' | 'verifying' | 'saving' | null
+    isPreparing: boolean
     isRetryable: boolean
     isUncertain: boolean
     pendingVideoId: string | null
@@ -45,17 +46,19 @@ interface UploadState {
 
 const initialState: UploadState = {
     file: null, thumbnail: null, duration: null, progress: 0, error: null,
-    success: false, isUploading: false, hash: null, phase: null,
+    success: false, isUploading: false, hash: null, phase: null, isPreparing: false,
     isRetryable: false, isUncertain: false, pendingVideoId: null, isRechecking: false,
 }
 
 export function PendingUploadCard({ item, targetDate, onSuccess, isLate = false, readOnly = false }: PendingUploadCardProps) {
     const { user } = useAuth()
     const fileInputRef = useRef<HTMLInputElement>(null)
+    const fileSelectCounterRef = useRef<number>(0)
     const [state, setState] = useState<UploadState>(initialState)
 
     useEffect(() => {
         if (readOnly) {
+            fileSelectCounterRef.current++
             updateState(initialState)
             if (fileInputRef.current) fileInputRef.current.value = ''
         }
@@ -83,16 +86,10 @@ export function PendingUploadCard({ item, targetDate, onSuccess, isLate = false,
         return `${mins}:${secs.toString().padStart(2, '0')}`
     }
 
-    const calculateHash = async (file: File): Promise<string> => {
-        const arrayBuffer = await file.arrayBuffer()
-        const hashBuffer = await crypto.subtle.digest('SHA-256', arrayBuffer)
-        const hashArray = Array.from(new Uint8Array(hashBuffer))
-        return hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
-    }
-
     const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
         if (readOnly) return
         const selectedFile = e.target.files?.[0]
+        const counter = ++fileSelectCounterRef.current
         updateState({ error: null, success: false, thumbnail: null, duration: null, isRetryable: false, isUncertain: false, pendingVideoId: null })
 
         if (!selectedFile) return
@@ -107,30 +104,30 @@ export function PendingUploadCard({ item, targetDate, onSuccess, isLate = false,
             return
         }
 
-        updateState({ file: selectedFile, thumbnail: null, duration: null, error: null, success: false })
+        updateState({ file: selectedFile, thumbnail: null, duration: null, error: null, success: false, isPreparing: true })
 
         try {
             const tasks: Promise<any>[] = [
                 generateThumbnail(selectedFile).catch(() => null),
                 getVideoDuration(selectedFile).catch(() => null),
+                calculateFileHash(selectedFile),
             ]
 
-            if (selectedFile.size <= HASH_THRESHOLD) {
-                tasks.push(calculateHash(selectedFile).catch(err => { console.error('Hash calculation failed:', err); return null }))
-            } else {
-                tasks.push(Promise.resolve(null))
-            }
-
             const [thumbUrl, duration, hash] = await Promise.all(tasks)
-            updateState({ thumbnail: thumbUrl, duration, hash: hash || null })
+            if (fileSelectCounterRef.current !== counter) return
+            updateState({ thumbnail: thumbUrl, duration, hash: hash || null, isPreparing: false })
         } catch (err) {
             console.error('Metadata extraction failed:', err)
+            if (fileSelectCounterRef.current === counter) {
+                updateState({ isPreparing: false })
+            }
         }
     }
 
     const handleClearFile = () => {
         if (readOnly) return
-        updateState({ file: null, thumbnail: null, duration: null, error: null, isRetryable: false, isUncertain: false, pendingVideoId: null })
+        fileSelectCounterRef.current++
+        updateState({ file: null, thumbnail: null, duration: null, hash: null, error: null, isPreparing: false, isRetryable: false, isUncertain: false, pendingVideoId: null })
         if (fileInputRef.current) fileInputRef.current.value = ''
     }
 
@@ -249,7 +246,7 @@ export function PendingUploadCard({ item, targetDate, onSuccess, isLate = false,
                         {item.name}
                     </h4>
                     <div className="flex items-center gap-1">
-                        {!readOnly && state.file && !state.isUploading && !state.isRechecking && (
+                        {!readOnly && state.file && !state.isUploading && !state.isRechecking && !state.isPreparing && (
                             <>
                                 <Button
                                     variant="ghost"
@@ -310,7 +307,7 @@ export function PendingUploadCard({ item, targetDate, onSuccess, isLate = false,
                                         {state.duration && <span>{formatDuration(state.duration)}</span>}
                                     </div>
                                     <p className="text-[8px] text-primary font-bold">
-                                        {!state.thumbnail ? '読み込み中...' : 'アップロード準備完了'}
+                                        {state.isPreparing ? '読み込み中...' : 'アップロード準備完了'}
                                     </p>
                                 </div>
                             </div>

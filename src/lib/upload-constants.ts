@@ -1,7 +1,5 @@
 export const MAX_FILE_SIZE = 2 * 1024 * 1024 * 1024
 
-export const HASH_THRESHOLD = 100 * 1024 * 1024
-
 export const ALLOWED_MIME_TYPES: readonly string[] = [
   'video/mp4',
   'video/quicktime',
