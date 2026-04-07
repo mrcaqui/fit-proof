@@ -10,6 +10,7 @@ import UsersPage from "./pages/admin/UsersPage"
 import UploadLogsPage from "./pages/admin/UploadLogsPage"
 import { Toaster } from "./components/ui/toaster"
 import { TooltipProvider } from "./components/ui/tooltip"
+import { ReloadPrompt } from "./components/ReloadPrompt"
 
 function App() {
     return (
@@ -28,6 +29,7 @@ function App() {
                         </Route>
                     </Routes>
                     <Toaster />
+                    <ReloadPrompt />
                 </BrowserRouter>
             </TooltipProvider>
         </AuthProvider>
