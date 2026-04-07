@@ -12,14 +12,22 @@ export function ReloadPrompt() {
     needRefresh: [needRefresh],
     updateServiceWorker,
   } = useRegisterSW({
-    onRegisteredSW(_url, r) {
+    onRegisteredSW(url, r) {
+      console.log("[SW] onRegisteredSW:", url, r ? "registration OK" : "no registration");
       setRegistration(r);
+    },
+    onNeedRefresh() {
+      console.log("[SW] onNeedRefresh fired — update available");
     },
   });
 
   const checkForUpdate = useCallback(() => {
-    if (!registration) return;
-    registration.update().catch(() => {});
+    if (!registration) {
+      console.log("[SW] checkForUpdate skipped — no registration");
+      return;
+    }
+    console.log("[SW] checkForUpdate — calling registration.update()");
+    registration.update().catch((e) => console.warn("[SW] update() failed:", e));
   }, [registration]);
 
   // visibilitychange + online + setInterval
@@ -27,9 +35,15 @@ export function ReloadPrompt() {
     if (!registration) return;
 
     const onVisibilityChange = () => {
-      if (document.visibilityState === "visible") checkForUpdate();
+      if (document.visibilityState === "visible") {
+        console.log("[SW] visibilitychange → visible");
+        checkForUpdate();
+      }
     };
-    const onOnline = () => checkForUpdate();
+    const onOnline = () => {
+      console.log("[SW] online event");
+      checkForUpdate();
+    };
 
     document.addEventListener("visibilitychange", onVisibilityChange);
     window.addEventListener("online", onOnline);
@@ -47,6 +61,7 @@ export function ReloadPrompt() {
   const prevPathname = useRef(pathname);
   useEffect(() => {
     if (prevPathname.current !== pathname) {
+      console.log("[SW] navigation:", prevPathname.current, "→", pathname);
       prevPathname.current = pathname;
       checkForUpdate();
     }
