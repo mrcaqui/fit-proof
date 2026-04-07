@@ -3,6 +3,7 @@ import { Session, User } from "@supabase/supabase-js"
 import { supabase } from "@/lib/supabase"
 import { Database } from "@/types/database.types"
 import { toast } from "@/hooks/use-toast"
+import { UploadLogger } from "@/lib/upload-logger"
 
 type Profile = Database['public']['Tables']['profiles']['Row']
 
@@ -174,6 +175,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             }
 
             // authorized_users.user_id のリンクはDBトリガー（on_profile_insert）が自動処理
+
+            // 前回失敗したアップロードログflushをリトライ
+            UploadLogger.retryPendingFlush(userId).catch(() => {})
         } finally {
             setLoading(false)
         }

@@ -97,6 +97,9 @@ export async function executeUpload(params: ExecuteUploadParams): Promise<Execut
   const logger = new UploadLogger(userId, file.name, file.size)
   let bunnyVideoId: string | null = null
 
+  // 前回失敗したflushをリトライ（fire-and-forget）
+  UploadLogger.retryPendingFlush(userId).catch(() => {})
+
   try {
     // 1. Online check
     if (!navigator.onLine) {
@@ -136,6 +139,8 @@ export async function executeUpload(params: ExecuteUploadParams): Promise<Execut
       )
       bunnyVideoId = bunnyResult.videoId
       bunnyPhase.complete({ videoId: bunnyResult.videoId })
+      // 早期flush: TUS失敗しても「アップロード試行あり」の証拠をサーバーに残す
+      logger.flush().catch(() => {})
     } catch (err) {
       bunnyPhase.fail(err)
       throw new UploadError(
@@ -148,7 +153,9 @@ export async function executeUpload(params: ExecuteUploadParams): Promise<Execut
 
     // 4. TUS upload
     const tusPhase = logger.startPhase('tus-upload')
+    const stopNetworkMonitor = logger.startNetworkMonitor()
     try {
+      let tusRetryCount = 0
       await new Promise<void>((resolve, reject) => {
         const upload = new tus.Upload(file, {
           endpoint: bunnyResult.tusEndpoint,
@@ -161,6 +168,22 @@ export async function executeUpload(params: ExecuteUploadParams): Promise<Execut
           },
           metadata: { filetype: file.type, title: file.name },
           removeFingerprintOnSuccess: true,
+          onShouldRetry: (error, _retryAttempt, _options) => {
+            // 既定判定を再現：4xx（409/423除く）はリトライしない、オフライン時もしない
+            // ⚠️ tus-js-client v4.x の defaultOnShouldRetry 準拠 — ライブラリ更新時に要確認
+            const status = (error as any).originalResponse
+              ? (error as any).originalResponse.getStatus()
+              : 0
+            const is4xx = status >= 400 && status < 500
+            const isRetryable4xx = status === 409 || status === 423
+            if (is4xx && !isRetryable4xx) return false
+            if (!navigator.onLine) return false
+
+            // リトライする場合のみカウント・ログ記録
+            tusRetryCount++
+            logger.logRetry('tus-upload', tusRetryCount, error)
+            return true
+          },
           onError: (error) => reject(error),
           onProgress: (bytesUploaded, bytesTotal) => {
             onProgress?.(Math.round((bytesUploaded / bytesTotal) * 100))
@@ -175,7 +198,7 @@ export async function executeUpload(params: ExecuteUploadParams): Promise<Execut
           })
           .catch(() => upload.start())
       })
-      tusPhase.complete()
+      tusPhase.complete({ tusRetries: tusRetryCount })
     } catch (err) {
       tusPhase.fail(err)
       throw new UploadError(
@@ -184,6 +207,8 @@ export async function executeUpload(params: ExecuteUploadParams): Promise<Execut
         true,
         '動画のアップロード中にエラーが発生しました。ネットワーク接続を確認して再度お試しください。',
       )
+    } finally {
+      stopNetworkMonitor()
     }
 
     // 5. Wait for Bunny processing (file-size-dependent timeout)

@@ -12,7 +12,7 @@ export type UploadPhase =
   | 'complete'
   | 'error'
 
-export type UploadStatus = 'start' | 'success' | 'fail' | 'retry'
+export type UploadStatus = 'start' | 'success' | 'fail' | 'retry' | 'info'
 
 export interface UploadLogEntry {
   userId: string
@@ -68,7 +68,7 @@ export class UploadLogger {
   private fileSize: number | null
   private fileName: string | null
   private entries: UploadLogEntry[] = []
-  private flushed = false
+  private lastFlushedCount = 0
 
   constructor(userId: string, fileName?: string, fileSize?: number) {
     this.userId = userId
@@ -151,16 +151,59 @@ export class UploadLogger {
     console.log(`[upload][${phase}][retry]`, { attempt, error })
   }
 
-  /** Flush session entries to Supabase (upsert) */
+  /** TUSアップロード中のonline/offlineイベントを監視してログに記録する */
+  startNetworkMonitor(): () => void {
+    const handleOffline = () => {
+      this.entries.push({
+        userId: this.userId,
+        sessionId: this.sessionId,
+        timestamp: new Date().toISOString(),
+        phase: 'tus-upload',
+        status: 'info',
+        durationMs: null,
+        fileSize: this.fileSize,
+        fileName: this.fileName,
+        error: null,
+        networkState: getNetworkState(),
+        extra: { event: 'network-offline' },
+      })
+      this.persistToLocalStorage()
+    }
+    const handleOnline = () => {
+      this.entries.push({
+        userId: this.userId,
+        sessionId: this.sessionId,
+        timestamp: new Date().toISOString(),
+        phase: 'tus-upload',
+        status: 'info',
+        durationMs: null,
+        fileSize: this.fileSize,
+        fileName: this.fileName,
+        error: null,
+        networkState: getNetworkState(),
+        extra: { event: 'network-online' },
+      })
+      this.persistToLocalStorage()
+    }
+    window.addEventListener('online', handleOnline)
+    window.addEventListener('offline', handleOffline)
+    return () => {
+      window.removeEventListener('online', handleOnline)
+      window.removeEventListener('offline', handleOffline)
+    }
+  }
+
+  /** Flush session entries to Supabase (upsert) — 複数回呼び出し可能（watermark方式） */
   async flush(): Promise<void> {
-    if (this.entries.length === 0 || this.flushed) return
+    const currentCount = this.entries.length
+    if (currentCount === 0 || currentCount === this.lastFlushedCount) return
 
     try {
       const { error } = await supabase.from('upload_logs' as any).upsert(
         {
           user_id: this.userId,
           session_id: this.sessionId,
-          entries: this.entries,
+          entries: this.entries.slice(),  // スナップショットを送信
         } as any,
         { onConflict: 'user_id,session_id' }
       )
@@ -171,7 +214,8 @@ export class UploadLogger {
         return
       }
 
-      this.flushed = true
+      // flush開始時点の件数で更新（flush中に増えた分は次回flushで送信される）
+      this.lastFlushedCount = currentCount
       this.removePendingFlag()
     } catch (e) {
       console.error('[upload-logger] Flush network error:', e)
@@ -283,7 +327,7 @@ export class UploadLogger {
     localStorage.removeItem(`${storageKey(userId)}:pending`)
   }
 
-  /** Retry flushing pending sessions for a user */
+  /** Retry flushing pending sessions for a user（一括書き戻し方式） */
   static async retryPendingFlush(userId: string): Promise<void> {
     try {
       const pendingKey = `${storageKey(userId)}:pending`
@@ -291,10 +335,14 @@ export class UploadLogger {
       if (pending.length === 0) return
 
       const allEntries = UploadLogger.readLocalEntries(userId)
+      const flushedIds: string[] = []
 
       for (const sessionId of pending) {
         const sessionEntries = allEntries.filter((e) => e.sessionId === sessionId)
-        if (sessionEntries.length === 0) continue
+        if (sessionEntries.length === 0) {
+          flushedIds.push(sessionId) // entriesが無いpendingも除去
+          continue
+        }
 
         try {
           const { error } = await supabase.from('upload_logs' as any).upsert(
@@ -305,18 +353,18 @@ export class UploadLogger {
             } as any,
             { onConflict: 'user_id,session_id' }
           )
-
-          if (!error) {
-            const updated = pending.filter((id) => id !== sessionId)
-            if (updated.length === 0) {
-              localStorage.removeItem(pendingKey)
-            } else {
-              localStorage.setItem(pendingKey, JSON.stringify(updated))
-            }
-          }
+          if (!error) flushedIds.push(sessionId)
         } catch {
           // Will retry next time
         }
+      }
+
+      // 一括書き戻し
+      const remaining = pending.filter((id) => !flushedIds.includes(id))
+      if (remaining.length === 0) {
+        localStorage.removeItem(pendingKey)
+      } else {
+        localStorage.setItem(pendingKey, JSON.stringify(remaining))
       }
     } catch {
       // Ignore

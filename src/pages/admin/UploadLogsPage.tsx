@@ -12,7 +12,7 @@ import {
     AlertDialogFooter,
     AlertDialogCancel,
 } from '@/components/ui/alert-dialog'
-import { Download, Trash2, ChevronDown, ChevronRight, Loader2, AlertCircle, CheckCircle, RotateCcw, Search } from 'lucide-react'
+import { Download, Trash2, ChevronDown, ChevronRight, Loader2, AlertCircle, CheckCircle, RotateCcw, Search, Info } from 'lucide-react'
 import type { UploadLogEntry } from '@/lib/upload-logger'
 
 interface UploadLogRow {
@@ -118,8 +118,10 @@ export default function UploadLogsPage() {
         const hasError = entries.some(e => e.status === 'fail')
         const isComplete = entries.some(e => e.phase === 'complete' && e.status === 'success')
         const totalDuration = entries.reduce((sum, e) => sum + (e.durationMs || 0), 0)
+        const retryCount = entries.filter(e => e.status === 'retry').length
+        const networkEvents = entries.filter(e => e.status === 'info').length
 
-        return { fileName, fileSize, hasError, isComplete, totalDuration }
+        return { fileName, fileSize, hasError, isComplete, totalDuration, retryCount, networkEvents }
     }
 
     const formatBytes = (bytes: number) => {
@@ -152,6 +154,7 @@ export default function UploadLogsPage() {
             case 'fail': return '失敗'
             case 'retry': return 'リトライ'
             case 'start': return '開始'
+            case 'info': return '情報'
             default: return status
         }
     }
@@ -161,6 +164,7 @@ export default function UploadLogsPage() {
             case 'success': return <CheckCircle className="w-3 h-3 text-green-500" />
             case 'fail': return <AlertCircle className="w-3 h-3 text-destructive" />
             case 'retry': return <RotateCcw className="w-3 h-3 text-yellow-500" />
+            case 'info': return <Info className="w-3 h-3 text-blue-500" />
             default: return null
         }
     }
@@ -235,6 +239,16 @@ export default function UploadLogsPage() {
                                                 {summary.hasError && !summary.isComplete && (
                                                     <span className="text-[10px] px-1.5 py-0.5 bg-red-100 text-red-700 rounded-full font-bold shrink-0">
                                                         エラー
+                                                    </span>
+                                                )}
+                                                {summary.retryCount > 0 && (
+                                                    <span className="text-[10px] px-1.5 py-0.5 bg-yellow-100 text-yellow-700 rounded-full font-bold shrink-0">
+                                                        リトライ {summary.retryCount}回
+                                                    </span>
+                                                )}
+                                                {summary.networkEvents > 0 && (
+                                                    <span className="text-[10px] px-1.5 py-0.5 bg-orange-100 text-orange-700 rounded-full font-bold shrink-0">
+                                                        NW {summary.networkEvents}件
                                                     </span>
                                                 )}
                                             </div>
