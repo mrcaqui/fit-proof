@@ -35,6 +35,7 @@ interface ItemUploadState {
     success: boolean
     isUploading: boolean
     hash: string | null
+    fileLastModified: string | null
     phase: 'uploading' | 'verifying' | 'saving' | null
     isPreparing: boolean
     // For uncertain state (status -1)
@@ -46,8 +47,8 @@ interface ItemUploadState {
 
 const defaultState: ItemUploadState = {
     file: null, thumbnail: null, duration: null, progress: 0, error: null,
-    success: false, isUploading: false, hash: null, phase: null, isPreparing: false,
-    isRetryable: false, isUncertain: false, pendingVideoId: null, isRechecking: false,
+    success: false, isUploading: false, hash: null, fileLastModified: null, phase: null,
+    isPreparing: false, isRetryable: false, isUncertain: false, pendingVideoId: null, isRechecking: false,
 }
 
 export function UploadModal({ targetDate, onClose, onSuccess, items, completedSubmissions, isLate = false }: UploadModalProps) {
@@ -110,7 +111,11 @@ export function UploadModal({ targetDate, onClose, onSuccess, items, completedSu
             return
         }
 
-        updateState(itemId, { file: selectedFile, thumbnail: null, duration: null, error: null, success: false, isPreparing: true })
+        const fileLastModified = selectedFile.lastModified
+            ? new Date(selectedFile.lastModified).toISOString()
+            : null
+
+        updateState(itemId, { file: selectedFile, thumbnail: null, duration: null, error: null, success: false, isPreparing: true, fileLastModified })
 
         try {
             const tasks: Promise<any>[] = [
@@ -152,6 +157,7 @@ export function UploadModal({ targetDate, onClose, onSuccess, items, completedSu
                 duration: state.duration,
                 hash: state.hash,
                 isLate,
+                fileLastModified: state.fileLastModified,
                 onProgress: (progress) => updateState(itemId, { progress }),
                 onPhaseChange: (phase) => updateState(itemId, { phase }),
             })
@@ -201,6 +207,7 @@ export function UploadModal({ targetDate, onClose, onSuccess, items, completedSu
                     duration: state.duration,
                     hash: state.hash,
                     isLate,
+                    fileLastModified: state.fileLastModified,
                 })
 
                 updateState(itemId, {

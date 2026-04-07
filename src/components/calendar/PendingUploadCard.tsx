@@ -36,6 +36,7 @@ interface UploadState {
     success: boolean
     isUploading: boolean
     hash: string | null
+    fileLastModified: string | null
     phase: 'uploading' | 'verifying' | 'saving' | null
     isPreparing: boolean
     isRetryable: boolean
@@ -46,8 +47,8 @@ interface UploadState {
 
 const initialState: UploadState = {
     file: null, thumbnail: null, duration: null, progress: 0, error: null,
-    success: false, isUploading: false, hash: null, phase: null, isPreparing: false,
-    isRetryable: false, isUncertain: false, pendingVideoId: null, isRechecking: false,
+    success: false, isUploading: false, hash: null, fileLastModified: null, phase: null,
+    isPreparing: false, isRetryable: false, isUncertain: false, pendingVideoId: null, isRechecking: false,
 }
 
 export function PendingUploadCard({ item, targetDate, onSuccess, isLate = false, readOnly = false }: PendingUploadCardProps) {
@@ -104,7 +105,11 @@ export function PendingUploadCard({ item, targetDate, onSuccess, isLate = false,
             return
         }
 
-        updateState({ file: selectedFile, thumbnail: null, duration: null, error: null, success: false, isPreparing: true })
+        const fileLastModified = selectedFile.lastModified
+            ? new Date(selectedFile.lastModified).toISOString()
+            : null
+
+        updateState({ file: selectedFile, thumbnail: null, duration: null, error: null, success: false, isPreparing: true, fileLastModified })
 
         try {
             const tasks: Promise<any>[] = [
@@ -127,7 +132,7 @@ export function PendingUploadCard({ item, targetDate, onSuccess, isLate = false,
     const handleClearFile = () => {
         if (readOnly) return
         fileSelectCounterRef.current++
-        updateState({ file: null, thumbnail: null, duration: null, hash: null, error: null, isPreparing: false, isRetryable: false, isUncertain: false, pendingVideoId: null })
+        updateState({ file: null, thumbnail: null, duration: null, hash: null, fileLastModified: null, error: null, isPreparing: false, isRetryable: false, isUncertain: false, pendingVideoId: null })
         if (fileInputRef.current) fileInputRef.current.value = ''
     }
 
@@ -152,6 +157,7 @@ export function PendingUploadCard({ item, targetDate, onSuccess, isLate = false,
                 duration: state.duration,
                 hash: state.hash,
                 isLate,
+                fileLastModified: state.fileLastModified,
                 onProgress: (progress) => updateState({ progress }),
                 onPhaseChange: (phase) => updateState({ phase }),
             })
@@ -197,6 +203,7 @@ export function PendingUploadCard({ item, targetDate, onSuccess, isLate = false,
                     duration: state.duration,
                     hash: state.hash,
                     isLate,
+                    fileLastModified: state.fileLastModified,
                 })
 
                 updateState({

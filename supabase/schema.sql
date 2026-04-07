@@ -127,6 +127,7 @@ create table submissions (
   is_revival boolean default false,
   video_size bigint,
   video_hash text,
+  file_last_modified timestamp with time zone,
   created_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
 

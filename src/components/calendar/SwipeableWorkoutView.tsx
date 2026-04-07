@@ -336,16 +336,21 @@ export function SwipeableWorkoutView({
                         }
                       }
 
-                      // Duration一致チェック（Hashは違うが時間が同じ = リサイズされた可能性）
-                      // null安全: 両方のハッシュが非nullで一致する場合のみスキップ
-                      if (s.duration && s.duration > 0) {
-                        const durationMatch = allWorkouts.find(w => w.id !== s.id && w.duration === s.duration && !(w.video_hash != null && s.video_hash != null && w.video_hash === s.video_hash))
-                        if (durationMatch) {
+                      // ファイル更新時刻の完全一致チェック（同一ファイルが別日に投稿された可能性）
+                      if (s.file_last_modified) {
+                        const sTime = new Date(s.file_last_modified).getTime()
+                        const fileTimeMatch = allWorkouts.find(w => {
+                          if (w.id === s.id) return false
+                          if (!w.file_last_modified) return false
+                          const wTime = new Date(w.file_last_modified).getTime()
+                          return sTime === wTime
+                        })
+                        if (fileTimeMatch) {
                           return {
-                            duplicateType: 'duration' as const,
+                            duplicateType: 'file_time' as const,
                             duplicateInfo: {
-                              targetDate: durationMatch.target_date || '日付不明',
-                              fileName: (durationMatch as any).file_name || '不明'
+                              targetDate: fileTimeMatch.target_date || '日付不明',
+                              fileName: (fileTimeMatch as any).file_name || '不明'
                             }
                           }
                         }

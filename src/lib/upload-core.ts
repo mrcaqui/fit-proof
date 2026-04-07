@@ -72,6 +72,7 @@ export interface ExecuteUploadParams {
   duration: number | null
   hash: string | null
   isLate: boolean
+  fileLastModified: string | null
   onProgress?: (progress: number) => void
   onPhaseChange?: (phase: 'uploading' | 'verifying' | 'saving') => void
 }
@@ -90,6 +91,7 @@ export async function executeUpload(params: ExecuteUploadParams): Promise<Execut
     duration,
     hash,
     isLate,
+    fileLastModified,
     onProgress,
     onPhaseChange,
   } = params
@@ -279,6 +281,7 @@ export async function executeUpload(params: ExecuteUploadParams): Promise<Execut
           p_thumbnail_url: thumbnail || null,
           p_file_name: file.name,
           p_is_late: isLate,
+          p_file_last_modified: fileLastModified ?? undefined,
         })
 
         if (rpcError) throw rpcError
@@ -305,6 +308,7 @@ export async function executeUpload(params: ExecuteUploadParams): Promise<Execut
           is_late: isLate,
           video_size: file.size,
           video_hash: hash,
+          file_last_modified: fileLastModified,
         } as any)
 
         if (dbError) throw dbError
@@ -408,8 +412,9 @@ export async function continueAfterRecheck(params: {
   duration: number | null
   hash: string | null
   isLate: boolean
+  fileLastModified: string | null
 }): Promise<void> {
-  const { videoId, userId, targetDate, submissionItemId, file, thumbnail, duration, hash, isLate } =
+  const { videoId, userId, targetDate, submissionItemId, file, thumbnail, duration, hash, isLate, fileLastModified } =
     params
 
   const { data: existing } = await supabase
@@ -433,6 +438,7 @@ export async function continueAfterRecheck(params: {
       p_thumbnail_url: thumbnail || null,
       p_file_name: file.name,
       p_is_late: isLate,
+      p_file_last_modified: fileLastModified ?? undefined,
     })
 
     if (rpcError) throw rpcError
@@ -456,6 +462,7 @@ export async function continueAfterRecheck(params: {
       is_late: isLate,
       video_size: file.size,
       video_hash: hash,
+      file_last_modified: fileLastModified,
     } as any)
 
     if (dbError) throw dbError

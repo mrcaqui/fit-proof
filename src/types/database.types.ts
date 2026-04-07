@@ -108,6 +108,7 @@ export interface Database {
                     is_revival: boolean
                     video_size: number | null
                     video_hash: string | null
+                    file_last_modified: string | null
                 }
                 Insert: {
                     id?: number
@@ -128,6 +129,7 @@ export interface Database {
                     is_revival?: boolean
                     video_size?: number | null
                     video_hash?: string | null
+                    file_last_modified?: string | null
                 }
                 Update: {
                     id?: number
@@ -148,6 +150,7 @@ export interface Database {
                     is_revival?: boolean
                     video_size?: number | null
                     video_hash?: string | null
+                    file_last_modified?: string | null
                 }
                 Relationships: [
                     {
@@ -316,6 +319,7 @@ export interface Database {
                     p_thumbnail_url: string | null
                     p_file_name: string | null
                     p_is_late: boolean
+                    p_file_last_modified?: string
                 }
                 Returns: { old_bunny_video_ids: string[]; new_id: number }[]
             }

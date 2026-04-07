@@ -35,7 +35,7 @@ interface WorkoutCardProps {
     onDeleteComment?: (commentId: string) => Promise<any>
     onMarkAsRead?: (commentId: string) => Promise<any>
     deadlineMode?: 'none' | 'mark'
-    duplicateType?: 'hash' | 'duration' | null
+    duplicateType?: 'hash' | 'file_time' | null
     duplicateInfo?: { targetDate: string; fileName: string } | null
 }
 
@@ -401,7 +401,7 @@ export function WorkoutCard({ submission, onDelete, isAdmin, onPlay, itemName, o
                                         <PopoverContent side="top" className="w-auto p-2 bg-popover/95 backdrop-blur-sm border shadow-xl z-[200]">
                                             <div className="space-y-1">
                                                 <p className="text-[11px] font-mono leading-none">
-                                                    {duplicateType === 'hash' ? 'Hash値一致（同一動画）' : '同じ動画時間（リサイズされた可能性）'}
+                                                    {duplicateType === 'hash' ? 'Hash値一致（同一動画）' : 'ファイル更新時刻一致（同一動画の可能性）'}
                                                 </p>
                                                 {duplicateInfo && (
                                                     <p className="text-[10px] text-muted-foreground leading-tight">
