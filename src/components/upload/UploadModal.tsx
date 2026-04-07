@@ -56,6 +56,7 @@ export function UploadModal({ targetDate, onClose, onSuccess, items, completedSu
     const [uploadingState, setUploadingState] = useState<Record<number | string, ItemUploadState>>({})
     const fileInputRefs = useRef<Record<number | string, HTMLInputElement | null>>({})
     const fileSelectCounterRef = useRef<Record<number | string, number>>({})
+    const hashAbortRef = useRef<Record<number | string, AbortController>>({})
 
     useEffect(() => {
         if (targetDate) {
@@ -76,12 +77,30 @@ export function UploadModal({ targetDate, onClose, onSuccess, items, completedSu
     }
 
     const getVideoDuration = (file: File): Promise<number> => {
-        return new Promise((resolve) => {
+        return new Promise((resolve, reject) => {
             const video = document.createElement('video')
             video.preload = 'metadata'
+
+            const timeout = setTimeout(() => {
+                cleanup()
+                reject(new Error('Duration extraction timed out'))
+            }, 5000)
+
+            const cleanup = () => {
+                clearTimeout(timeout)
+                URL.revokeObjectURL(video.src)
+                video.src = ''
+                video.load()
+            }
+
             video.onloadedmetadata = () => {
-                window.URL.revokeObjectURL(video.src)
-                resolve(video.duration)
+                const duration = video.duration
+                cleanup()
+                resolve(duration)
+            }
+            video.onerror = () => {
+                cleanup()
+                reject(new Error('Error loading video for duration'))
             }
             video.src = URL.createObjectURL(file)
         })
@@ -117,16 +136,27 @@ export function UploadModal({ targetDate, onClose, onSuccess, items, completedSu
 
         updateState(itemId, { file: selectedFile, thumbnail: null, duration: null, error: null, success: false, isPreparing: true, fileLastModified })
 
+        // 前回のハッシュ計算を中断
+        hashAbortRef.current[itemId]?.abort()
+
         try {
-            const tasks: Promise<any>[] = [
+            // Step 1: サムネイル + 動画長（軽量I/O、並列OK）
+            const [thumbUrl, duration] = await Promise.all([
                 generateThumbnail(selectedFile).catch(err => { console.error('Thumbnail generation failed:', err); return null }),
                 getVideoDuration(selectedFile).catch(err => { console.error('Duration extraction failed:', err); return null }),
-                calculateFileHash(selectedFile),
-            ]
-
-            const [thumbUrl, duration, hash] = await Promise.all(tasks)
+            ])
             if (fileSelectCounterRef.current[itemId] !== counter) return
-            updateState(itemId, { thumbnail: thumbUrl, duration, hash: hash || null, isPreparing: false })
+
+            // サムネイルを即時反映してからハッシュ計算へ
+            updateState(itemId, { thumbnail: thumbUrl, duration })
+
+            // Step 2: ハッシュ計算（AbortSignal付き）
+            const abortController = new AbortController()
+            hashAbortRef.current[itemId] = abortController
+            const hash = await calculateFileHash(selectedFile, abortController.signal)
+            if (fileSelectCounterRef.current[itemId] !== counter) return
+
+            updateState(itemId, { hash: hash || null, isPreparing: false })
         } catch (err) {
             console.error('Metadata extraction failed:', err)
             if (fileSelectCounterRef.current[itemId] === counter) {
