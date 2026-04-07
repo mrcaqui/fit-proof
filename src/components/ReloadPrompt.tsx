@@ -4,7 +4,7 @@ import { useRegisterSW } from "virtual:pwa-register/react";
 import { Button } from "@/components/ui/button";
 import { RefreshCw } from "lucide-react";
 
-const UPDATE_INTERVAL_MS = 60 * 60 * 1000; // 60 minutes
+const UPDATE_INTERVAL_MS = 60 * 60 * 1000; // 60 min
 
 export function ReloadPrompt() {
   const [registration, setRegistration] = useState<ServiceWorkerRegistration>();
