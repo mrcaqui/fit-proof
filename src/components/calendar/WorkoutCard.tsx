@@ -5,6 +5,8 @@ import {
     XCircle,
     Play,
     Clock,
+    Upload,
+    FileClock,
     Trash2,
     Loader2,
     AlertCircle,
@@ -110,6 +112,10 @@ export function WorkoutCard({ submission, onDelete, isAdmin, onPlay, itemName, o
     const timeStr = submission.created_at
         ? format(parseISO(submission.created_at), 'yyyy/MM/dd HH:mm:ss')
         : '--:--'
+
+    const fileModifiedStr = submission.file_last_modified
+        ? format(parseISO(submission.file_last_modified), 'yyyy/MM/dd HH:mm:ss')
+        : null
 
     const formatDuration = (seconds: number | null) => {
         if (!seconds) return null
@@ -256,14 +262,28 @@ export function WorkoutCard({ submission, onDelete, isAdmin, onPlay, itemName, o
                                 <Popover>
                                     <PopoverTrigger asChild>
                                         <div className="flex items-center gap-1 text-[10px] text-muted-foreground/80 font-medium font-mono min-w-0 cursor-pointer active:opacity-60 transition-opacity w-fit">
-                                            <Clock className="w-2.5 h-2.5 shrink-0" />
+                                            <Upload className="w-2.5 h-2.5 shrink-0" />
                                             <span className="truncate">{timeStr}</span>
                                         </div>
                                     </PopoverTrigger>
                                     <PopoverContent side="top" className="w-auto p-2 bg-popover/95 backdrop-blur-sm border shadow-xl z-[200]">
-                                        <p className="text-[11px] font-mono leading-none">{timeStr}</p>
+                                        <p className="text-[11px] font-mono leading-none">投稿時刻: {timeStr}</p>
                                     </PopoverContent>
                                 </Popover>
+
+                                {isAdmin && fileModifiedStr && (
+                                    <Popover>
+                                        <PopoverTrigger asChild>
+                                            <div className="flex items-center gap-1 text-[10px] text-muted-foreground/80 font-medium font-mono min-w-0 cursor-pointer active:opacity-60 transition-opacity w-fit">
+                                                <FileClock className="w-2.5 h-2.5 shrink-0" />
+                                                <span className="truncate">{fileModifiedStr}</span>
+                                            </div>
+                                        </PopoverTrigger>
+                                        <PopoverContent side="top" className="w-auto p-2 bg-popover/95 backdrop-blur-sm border shadow-xl z-[200]">
+                                            <p className="text-[11px] font-mono leading-none">ファイルの最終更新時刻: {fileModifiedStr}</p>
+                                        </PopoverContent>
+                                    </Popover>
+                                )}
 
                                 {/* Admin Actions - Compact icon buttons below timestamp */}
                                 {isAdmin && (
