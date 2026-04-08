@@ -12,7 +12,7 @@ import {
     AlertDialogFooter,
     AlertDialogCancel,
 } from '@/components/ui/alert-dialog'
-import { Download, Trash2, ChevronDown, ChevronRight, Loader2, AlertCircle, CheckCircle, RotateCcw, Search, Info } from 'lucide-react'
+import { Download, Trash2, ChevronDown, ChevronRight, Loader2, AlertCircle, CheckCircle, RotateCcw, Search, Info, ArrowUpCircle } from 'lucide-react'
 import type { UploadLogEntry } from '@/lib/upload-logger'
 
 interface UploadLogRow {
@@ -120,8 +120,9 @@ export default function UploadLogsPage() {
         const totalDuration = entries.reduce((sum, e) => sum + (e.durationMs || 0), 0)
         const retryCount = entries.filter(e => e.status === 'retry').length
         const networkEvents = entries.filter(e => e.status === 'info').length
+        const progressEvents = entries.filter(e => e.status === 'progress').length
 
-        return { fileName, fileSize, hasError, isComplete, totalDuration, retryCount, networkEvents }
+        return { fileName, fileSize, hasError, isComplete, totalDuration, retryCount, networkEvents, progressEvents }
     }
 
     const formatBytes = (bytes: number) => {
@@ -155,6 +156,7 @@ export default function UploadLogsPage() {
             case 'retry': return 'リトライ'
             case 'start': return '開始'
             case 'info': return '情報'
+            case 'progress': return '進捗'
             default: return status
         }
     }
@@ -165,6 +167,7 @@ export default function UploadLogsPage() {
             case 'fail': return <AlertCircle className="w-3 h-3 text-destructive" />
             case 'retry': return <RotateCcw className="w-3 h-3 text-yellow-500" />
             case 'info': return <Info className="w-3 h-3 text-blue-500" />
+            case 'progress': return <ArrowUpCircle className="w-3 h-3 text-sky-500" />
             default: return null
         }
     }
@@ -248,7 +251,7 @@ export default function UploadLogsPage() {
                                                 )}
                                                 {summary.networkEvents > 0 && (
                                                     <span className="text-[10px] px-1.5 py-0.5 bg-orange-100 text-orange-700 rounded-full font-bold shrink-0">
-                                                        NW {summary.networkEvents}件
+                                                        イベント {summary.networkEvents}件
                                                     </span>
                                                 )}
                                             </div>

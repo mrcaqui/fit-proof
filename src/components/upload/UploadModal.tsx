@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useMemo } from 'react'
 import { Database } from "@/types/database.types"
 import { useAuth } from '@/context/AuthContext'
 import { generateThumbnail } from '@/utils/thumbnail'
@@ -16,6 +16,7 @@ import {
   SIZE_LABEL,
   isAllowedVideoFile,
 } from '@/lib/upload-constants'
+import { useUploadGuard } from '@/hooks/useUploadGuard'
 
 interface UploadModalProps {
     targetDate: Date | null
@@ -54,6 +55,11 @@ const defaultState: ItemUploadState = {
 export function UploadModal({ targetDate, onClose, onSuccess, items, completedSubmissions, isLate = false }: UploadModalProps) {
     const { user } = useAuth()
     const [uploadingState, setUploadingState] = useState<Record<number | string, ItemUploadState>>({})
+    const hasActiveUpload = useMemo(
+        () => Object.values(uploadingState).some(s => s.isUploading),
+        [uploadingState],
+    )
+    useUploadGuard(hasActiveUpload)
     const fileInputRefs = useRef<Record<number | string, HTMLInputElement | null>>({})
     const fileSelectCounterRef = useRef<Record<number | string, number>>({})
     const hashAbortRef = useRef<Record<number | string, AbortController>>({})
@@ -388,6 +394,11 @@ export function UploadModal({ targetDate, onClose, onSuccess, items, completedSu
                                     <span className="text-xs font-medium animate-pulse">
                                         {getPhaseLabel(state.phase, state.progress)}
                                     </span>
+                                    {state.phase === 'uploading' && (
+                                        <span className="text-[10px] text-muted-foreground mt-1">
+                                            アップロード中は画面を閉じないでください
+                                        </span>
+                                    )}
                                 </>
                             )}
                         </div>

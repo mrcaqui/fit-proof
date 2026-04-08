@@ -12,7 +12,7 @@ export type UploadPhase =
   | 'complete'
   | 'error'
 
-export type UploadStatus = 'start' | 'success' | 'fail' | 'retry' | 'info'
+export type UploadStatus = 'start' | 'success' | 'fail' | 'retry' | 'info' | 'progress'
 
 export interface UploadLogEntry {
   userId: string
@@ -95,7 +95,9 @@ export class UploadLogger {
       extra: null,
     }
 
-    // Log start to console only (not persisted to localStorage)
+    // Persist start entry to localStorage (evidence that phase began)
+    this.entries.push(entry)
+    this.persistToLocalStorage()
     console.log(`[upload][${phase}][start]`, { sessionId: this.sessionId })
 
     return {
@@ -151,6 +153,26 @@ export class UploadLogger {
     console.log(`[upload][${phase}][retry]`, { attempt, error })
   }
 
+  /** Log a progress checkpoint for a phase */
+  logProgress(phase: UploadPhase, extra: Record<string, unknown>) {
+    const progressEntry: UploadLogEntry = {
+      userId: this.userId,
+      sessionId: this.sessionId,
+      timestamp: new Date().toISOString(),
+      phase,
+      status: 'progress',
+      durationMs: null,
+      fileSize: this.fileSize,
+      fileName: this.fileName,
+      error: null,
+      networkState: getNetworkState(),
+      extra,
+    }
+    this.entries.push(progressEntry)
+    this.persistToLocalStorage()
+    console.log(`[upload][${phase}][progress]`, extra)
+  }
+
   /** TUSアップロード中のonline/offlineイベントを監視してログに記録する */
   startNetworkMonitor(): () => void {
     const handleOffline = () => {
@@ -185,11 +207,29 @@ export class UploadLogger {
       })
       this.persistToLocalStorage()
     }
+    const handleVisibilityChange = () => {
+      this.entries.push({
+        userId: this.userId,
+        sessionId: this.sessionId,
+        timestamp: new Date().toISOString(),
+        phase: 'tus-upload',
+        status: 'info',
+        durationMs: null,
+        fileSize: this.fileSize,
+        fileName: this.fileName,
+        error: null,
+        networkState: getNetworkState(),
+        extra: { event: `visibility-${document.visibilityState}` },
+      })
+      this.persistToLocalStorage()
+    }
     window.addEventListener('online', handleOnline)
     window.addEventListener('offline', handleOffline)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
     return () => {
       window.removeEventListener('online', handleOnline)
       window.removeEventListener('offline', handleOffline)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
   }
 

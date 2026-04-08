@@ -2,6 +2,7 @@ import * as tus from 'tus-js-client'
 import { createBunnyVideo, deleteBunnyVideo, waitForBunnyProcessing, checkBunnyVideoStatus } from '@/lib/bunny'
 import { supabase } from '@/lib/supabase'
 import { UploadLogger } from '@/lib/upload-logger'
+import { acquireWakeLock } from '@/lib/upload-wakelock'
 import {
   BUNNY_CREATE_MAX_ATTEMPTS,
   BUNNY_CREATE_RETRY_DELAYS,
@@ -156,8 +157,11 @@ export async function executeUpload(params: ExecuteUploadParams): Promise<Execut
     // 4. TUS upload
     const tusPhase = logger.startPhase('tus-upload')
     const stopNetworkMonitor = logger.startNetworkMonitor()
+    const releaseWakeLock = await acquireWakeLock()
     try {
       let tusRetryCount = 0
+      let lastLoggedPercent = -10
+      let lastLoggedTime = Date.now()
       await new Promise<void>((resolve, reject) => {
         const upload = new tus.Upload(file, {
           endpoint: bunnyResult.tusEndpoint,
@@ -188,7 +192,21 @@ export async function executeUpload(params: ExecuteUploadParams): Promise<Execut
           },
           onError: (error) => reject(error),
           onProgress: (bytesUploaded, bytesTotal) => {
-            onProgress?.(Math.round((bytesUploaded / bytesTotal) * 100))
+            const percent = Math.round((bytesUploaded / bytesTotal) * 100)
+            onProgress?.(percent)
+
+            // Throttled progress log: every 10% or 30 seconds
+            const now = Date.now()
+            if (percent - lastLoggedPercent >= 10 || now - lastLoggedTime >= 30_000) {
+              logger.logProgress('tus-upload', {
+                event: 'tus-progress',
+                percent,
+                bytesUploaded,
+                bytesTotal,
+              })
+              lastLoggedPercent = percent
+              lastLoggedTime = now
+            }
           },
           onSuccess: () => resolve(),
         })
@@ -211,6 +229,7 @@ export async function executeUpload(params: ExecuteUploadParams): Promise<Execut
       )
     } finally {
       stopNetworkMonitor()
+      releaseWakeLock()
     }
 
     // 5. Wait for Bunny processing (file-size-dependent timeout)

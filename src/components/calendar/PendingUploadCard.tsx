@@ -16,6 +16,7 @@ import {
   SIZE_LABEL,
   isAllowedVideoFile,
 } from '@/lib/upload-constants'
+import { useUploadGuard } from '@/hooks/useUploadGuard'
 
 type SubmissionItem = Database['public']['Tables']['submission_items']['Row']
 
@@ -57,6 +58,7 @@ export function PendingUploadCard({ item, targetDate, onSuccess, isLate = false,
     const fileSelectCounterRef = useRef<number>(0)
     const hashAbortRef = useRef<AbortController | null>(null)
     const [state, setState] = useState<UploadState>(initialState)
+    useUploadGuard(state.isUploading)
 
     useEffect(() => {
         if (readOnly) {
@@ -373,6 +375,11 @@ export function PendingUploadCard({ item, targetDate, onSuccess, isLate = false,
                                     <span className="text-[10px] font-medium animate-pulse">
                                         {getPhaseLabel(state.phase, state.progress)}
                                     </span>
+                                    {state.phase === 'uploading' && (
+                                        <span className="text-[10px] text-muted-foreground mt-1">
+                                            アップロード中は画面を閉じないでください
+                                        </span>
+                                    )}
                                 </>
                             )}
                         </div>
