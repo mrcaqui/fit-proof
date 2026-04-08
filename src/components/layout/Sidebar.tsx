@@ -9,8 +9,6 @@ import { useState } from "react"
 import { ModeToggle } from "../mode-toggle"
 import { useAuth } from "@/context/AuthContext"
 
-declare const __APP_VERSION__: string
-
 interface SidebarProps extends React.HTMLAttributes<HTMLDivElement> {
     isCollapsed: boolean
     setIsCollapsed: (value: boolean) => void

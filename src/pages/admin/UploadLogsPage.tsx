@@ -12,7 +12,7 @@ import {
     AlertDialogFooter,
     AlertDialogCancel,
 } from '@/components/ui/alert-dialog'
-import { Download, Trash2, ChevronDown, ChevronRight, Loader2, AlertCircle, CheckCircle, RotateCcw, Search, Info, ArrowUpCircle } from 'lucide-react'
+import { Download, Trash2, ChevronDown, ChevronRight, Loader2, AlertCircle, CheckCircle, RotateCcw, Search, Info, ArrowUpCircle, PlayCircle } from 'lucide-react'
 import type { UploadLogEntry } from '@/lib/upload-logger'
 
 interface UploadLogRow {
@@ -34,6 +34,7 @@ export default function UploadLogsPage() {
     const [expandedSessions, setExpandedSessions] = useState<Set<string>>(new Set())
     const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
     const [deleting, setDeleting] = useState(false)
+    const [expandedProgressGroups, setExpandedProgressGroups] = useState<Set<string>>(new Set())
 
     useEffect(() => {
         fetchLogs()
@@ -163,6 +164,7 @@ export default function UploadLogsPage() {
 
     const statusIcon = (status: string) => {
         switch (status) {
+            case 'start': return <PlayCircle className="w-3 h-3 text-muted-foreground" />
             case 'success': return <CheckCircle className="w-3 h-3 text-green-500" />
             case 'fail': return <AlertCircle className="w-3 h-3 text-destructive" />
             case 'retry': return <RotateCcw className="w-3 h-3 text-yellow-500" />
@@ -170,6 +172,58 @@ export default function UploadLogsPage() {
             case 'progress': return <ArrowUpCircle className="w-3 h-3 text-sky-500" />
             default: return null
         }
+    }
+
+    const getDeviceInfoFromEntries = (entries: UploadLogEntry[]) => {
+        const selectEntry = entries.find(
+            e => e.phase === 'file-select' && e.status === 'success' && e.extra
+        )
+        if (!selectEntry?.extra) return null
+        const device = selectEntry.extra.device as { browser?: string; os?: string; isPWA?: boolean } | undefined
+        const appVersion = selectEntry.extra.appVersion as string | undefined
+        if (!device && !appVersion) return null
+        return { browser: device?.browser, os: device?.os, isPWA: device?.isPWA, appVersion }
+    }
+
+    const toggleProgressGroup = (groupKey: string) => {
+        setExpandedProgressGroups(prev => {
+            const next = new Set(prev)
+            if (next.has(groupKey)) next.delete(groupKey)
+            else next.add(groupKey)
+            return next
+        })
+    }
+
+    /** エントリ配列を走査し、連続する tus-upload progress をグループ化した表示用配列を返す */
+    const groupEntries = (entries: UploadLogEntry[], sessionId: string) => {
+        type EntryItem = { type: 'entry'; entry: UploadLogEntry; idx: number }
+        type GroupItem = { type: 'progress-group'; entries: UploadLogEntry[]; groupKey: string }
+        const result: (EntryItem | GroupItem)[] = []
+        let progressBuf: UploadLogEntry[] = []
+        let groupCounter = 0
+
+        const flushProgress = () => {
+            if (progressBuf.length === 0) return
+            groupCounter++
+            result.push({
+                type: 'progress-group',
+                entries: [...progressBuf],
+                groupKey: `${sessionId}-pg-${groupCounter}`,
+            })
+            progressBuf = []
+        }
+
+        entries.forEach((entry, idx) => {
+            if (entry.phase === 'tus-upload' && entry.status === 'progress') {
+                progressBuf.push(entry)
+            } else {
+                flushProgress()
+                result.push({ type: 'entry', entry, idx })
+            }
+        })
+        flushProgress()
+
+        return result
     }
 
     const filteredLogs = searchQuery
@@ -261,6 +315,25 @@ export default function UploadLogsPage() {
                                                 {summary.fileSize && <span>{formatBytes(summary.fileSize)}</span>}
                                                 {summary.totalDuration > 0 && <span>{formatMs(summary.totalDuration)}</span>}
                                             </div>
+                                            {(() => {
+                                                const info = getDeviceInfoFromEntries(log.entries || [])
+                                                if (!info) return null
+                                                const parts = [info.browser, info.os, info.isPWA ? 'PWA' : null].filter(Boolean)
+                                                return (
+                                                    <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                                                        {parts.length > 0 && (
+                                                            <span className="text-[10px] px-1.5 py-0.5 bg-muted text-muted-foreground rounded">
+                                                                {parts.join(' / ')}
+                                                            </span>
+                                                        )}
+                                                        {info.appVersion && (
+                                                            <span className="text-[10px] px-1.5 py-0.5 bg-muted text-muted-foreground rounded">
+                                                                v{info.appVersion}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                )
+                                            })()}
                                         </div>
                                     </div>
                                 </button>
@@ -268,10 +341,61 @@ export default function UploadLogsPage() {
                                 {isExpanded && (
                                     <CardContent className="pt-0 pb-4 px-4">
                                         <div className="ml-7 border-l-2 border-muted pl-4 space-y-3">
-                                            {(log.entries || []).map((entry, idx) => {
+                                            {groupEntries(log.entries || [], log.session_id).map((item) => {
+                                                if (item.type === 'progress-group') {
+                                                    const group = item.entries
+                                                    const firstPercent = (group[0].extra as any)?.percent ?? 0
+                                                    const lastPercent = (group[group.length - 1].extra as any)?.percent ?? 100
+                                                    const isGroupExpanded = expandedProgressGroups.has(item.groupKey)
+                                                    return (
+                                                        <div key={item.groupKey}>
+                                                            <button
+                                                                onClick={() => toggleProgressGroup(item.groupKey)}
+                                                                className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors w-full text-left"
+                                                            >
+                                                                <div className="shrink-0 mt-0.5">
+                                                                    <ArrowUpCircle className="w-3 h-3 text-sky-500" />
+                                                                </div>
+                                                                <span>
+                                                                    進捗: {firstPercent}% → {lastPercent}% ({group.length}件のログ)
+                                                                </span>
+                                                                {isGroupExpanded
+                                                                    ? <ChevronDown className="w-3 h-3" />
+                                                                    : <ChevronRight className="w-3 h-3" />
+                                                                }
+                                                            </button>
+                                                            {isGroupExpanded && (
+                                                                <div className="ml-5 mt-1 space-y-2">
+                                                                    {group.map((entry, gi) => (
+                                                                        <div key={gi} className="flex items-start gap-2 text-xs">
+                                                                            <div className="shrink-0 mt-0.5">{statusIcon(entry.status)}</div>
+                                                                            <div className="flex-1 min-w-0">
+                                                                                <div className="flex items-center gap-2 flex-wrap">
+                                                                                    <span className="font-bold">{phaseLabel(entry.phase).name}</span>
+                                                                                    <span className="text-muted-foreground">{statusLabel(entry.status)}</span>
+                                                                                </div>
+                                                                                {entry.extra && Object.keys(entry.extra).length > 0 && (
+                                                                                    <div className="text-muted-foreground mt-0.5 font-mono text-[10px] break-all">
+                                                                                        {JSON.stringify(entry.extra)}
+                                                                                    </div>
+                                                                                )}
+                                                                                <div className="text-muted-foreground/60 text-[10px]">
+                                                                                    {new Date(entry.timestamp).toLocaleTimeString('ja-JP')}
+                                                                                    {!entry.networkState?.online && ' (offline)'}
+                                                                                </div>
+                                                                            </div>
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    )
+                                                }
+
+                                                const entry = item.entry
                                                 const phase = phaseLabel(entry.phase)
                                                 return (
-                                                    <div key={idx} className="flex items-start gap-2 text-xs">
+                                                    <div key={item.idx} className="flex items-start gap-2 text-xs">
                                                         <div className="shrink-0 mt-0.5">{statusIcon(entry.status)}</div>
                                                         <div className="flex-1 min-w-0">
                                                             <div className="flex items-center gap-2 flex-wrap">
@@ -285,7 +409,7 @@ export default function UploadLogsPage() {
                                                                     </span>
                                                                 )}
                                                             </div>
-                                                            {phase.desc && (
+                                                            {entry.status === 'start' && phase.desc && (
                                                                 <p className="text-muted-foreground/70 text-[10px] mt-0.5">
                                                                     {phase.desc}
                                                                 </p>

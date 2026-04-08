@@ -1,7 +1,7 @@
 import * as tus from 'tus-js-client'
 import { createBunnyVideo, deleteBunnyVideo, waitForBunnyProcessing, checkBunnyVideoStatus } from '@/lib/bunny'
 import { supabase } from '@/lib/supabase'
-import { UploadLogger } from '@/lib/upload-logger'
+import { UploadLogger, getDeviceInfo } from '@/lib/upload-logger'
 import { acquireWakeLock } from '@/lib/upload-wakelock'
 import {
   BUNNY_CREATE_MAX_ATTEMPTS,
@@ -99,6 +99,15 @@ export async function executeUpload(params: ExecuteUploadParams): Promise<Execut
 
   const logger = new UploadLogger(userId, file.name, file.size)
   let bunnyVideoId: string | null = null
+
+  // file-select フェーズ: バージョン・デバイス情報を記録（online check より前）
+  const selectPhase = logger.startPhase('file-select')
+  selectPhase.complete({
+    appVersion: __APP_VERSION__,
+    device: getDeviceInfo(),
+    fileType: file.type,
+    fileSize: file.size,
+  })
 
   // 前回失敗したflushをリトライ（fire-and-forget）
   UploadLogger.retryPendingFlush(userId).catch(() => {})

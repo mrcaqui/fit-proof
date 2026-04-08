@@ -33,6 +33,65 @@ interface PhaseHandle {
   fail(error: unknown, extra?: Record<string, unknown>): void
 }
 
+// --- Device Info ---
+
+export interface DeviceInfo {
+  browser: string
+  os: string
+  deviceType: string
+  isPWA: boolean
+}
+
+export function getDeviceInfo(): DeviceInfo {
+  const ua = navigator.userAgent
+
+  // Browser detection
+  let browser = 'Unknown'
+  if (/CriOS\/(\d+)/.test(ua)) {
+    browser = `Chrome ${RegExp.$1}` // Chrome on iOS
+  } else if (/Chrome\/(\d+)/.test(ua) && !/Edg\//.test(ua)) {
+    browser = `Chrome ${RegExp.$1}`
+  } else if (/Edg\/(\d+)/.test(ua)) {
+    browser = `Edge ${RegExp.$1}`
+  } else if (/Version\/(\d+(\.\d+)?).*Safari/.test(ua)) {
+    browser = `Safari ${RegExp.$1}`
+  } else if (/Firefox\/(\d+)/.test(ua)) {
+    browser = `Firefox ${RegExp.$1}`
+  }
+
+  // OS detection
+  let os = 'Unknown'
+  if (/iPhone OS (\d+[_]\d+)/.test(ua)) {
+    os = `iOS ${RegExp.$1.replace('_', '.')}`
+  } else if (/iPad.*OS (\d+[_]\d+)/.test(ua) || (/Macintosh/.test(ua) && 'ontouchend' in document)) {
+    const m = ua.match(/OS (\d+[_]\d+)/)
+    os = m ? `iPadOS ${m[1].replace('_', '.')}` : 'iPadOS'
+  } else if (/Android (\d+(\.\d+)?)/.test(ua)) {
+    os = `Android ${RegExp.$1}`
+  } else if (/Windows NT/.test(ua)) {
+    os = 'Windows'
+  } else if (/Mac OS X (\d+[._]\d+)/.test(ua)) {
+    os = `macOS ${RegExp.$1.replace('_', '.')}`
+  } else if (/Linux/.test(ua)) {
+    os = 'Linux'
+  }
+
+  // Device type
+  let deviceType = 'desktop'
+  if (/Mobi|Android.*Mobile|iPhone/.test(ua)) {
+    deviceType = 'mobile'
+  } else if (/iPad|Android(?!.*Mobile)|Tablet/.test(ua) || (/Macintosh/.test(ua) && 'ontouchend' in document)) {
+    deviceType = 'tablet'
+  }
+
+  // PWA detection
+  const isPWA =
+    window.matchMedia('(display-mode: standalone)').matches ||
+    (navigator as any).standalone === true
+
+  return { browser, os, deviceType, isPWA }
+}
+
 // --- Constants ---
 
 const MAX_SESSIONS = 50
