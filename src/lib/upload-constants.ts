@@ -30,6 +30,11 @@ export const MIN_PROCESSING_TIMEOUT_MS = 60_000
 export const MAX_PROCESSING_TIMEOUT_MS = 300_000
 export const PROCESSING_TIMEOUT_BYTES_PER_SEC = 500 * 1024
 
+export const TUS_CHUNK_SIZE = 25 * 1024 * 1024
+export const TUS_INITIAL_PROGRESS_TIMEOUT_MS = 30_000
+export const TUS_STALLED_WARN_MS = 10_000
+export const WAKELOCK_TIMEOUT_MS = 2_000
+
 /** Calculate processing timeout based on file size */
 export function getProcessingTimeout(fileSize: number): number {
   const dynamic = Math.round((fileSize / PROCESSING_TIMEOUT_BYTES_PER_SEC) * 1000)

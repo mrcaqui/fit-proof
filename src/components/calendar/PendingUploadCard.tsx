@@ -3,11 +3,11 @@ import { Database } from '@/types/database.types'
 import { useAuth } from '@/context/AuthContext'
 import { generateThumbnail } from '@/utils/thumbnail'
 import { calculateFileHash } from '@/utils/hash'
-import { executeUpload, UploadError, recheckVideoStatus, continueAfterRecheck } from '@/lib/upload-core'
+import { executeUpload, UploadError, recheckVideoStatus, continueAfterRecheck, type UploadStage } from '@/lib/upload-core'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
-import { Upload, Film, AlertCircle, X, RefreshCw, RotateCcw } from 'lucide-react'
+import { Upload, Film, AlertCircle, AlertTriangle, X, RefreshCw, RotateCcw } from 'lucide-react'
 import { format } from 'date-fns'
 import {
   MAX_FILE_SIZE,
@@ -39,6 +39,7 @@ interface UploadState {
     hash: string | null
     fileLastModified: string | null
     phase: 'uploading' | 'verifying' | 'saving' | null
+    stage: UploadStage | null
     isPreparing: boolean
     isRetryable: boolean
     isUncertain: boolean
@@ -49,7 +50,7 @@ interface UploadState {
 const initialState: UploadState = {
     file: null, thumbnail: null, duration: null, progress: 0, error: null,
     success: false, isUploading: false, hash: null, fileLastModified: null, phase: null,
-    isPreparing: false, isRetryable: false, isUncertain: false, pendingVideoId: null, isRechecking: false,
+    stage: null, isPreparing: false, isRetryable: false, isUncertain: false, pendingVideoId: null, isRechecking: false,
 }
 
 export function PendingUploadCard({ item, targetDate, onSuccess, isLate = false, readOnly = false }: PendingUploadCardProps) {
@@ -173,7 +174,7 @@ export function PendingUploadCard({ item, targetDate, onSuccess, isLate = false,
         if (!state.file || !user) return
 
         updateState({
-            isUploading: true, progress: 0, error: null, phase: 'uploading',
+            isUploading: true, progress: 0, error: null, phase: 'uploading', stage: 'preparing-video',
             isRetryable: false, isUncertain: false, pendingVideoId: null,
         })
 
@@ -192,9 +193,10 @@ export function PendingUploadCard({ item, targetDate, onSuccess, isLate = false,
                 fileLastModified: state.fileLastModified,
                 onProgress: (progress) => updateState({ progress }),
                 onPhaseChange: (phase) => updateState({ phase }),
+                onStageChange: (stage) => updateState({ stage }),
             })
 
-            updateState({ success: true, file: null, thumbnail: null, isUploading: false, phase: null })
+            updateState({ success: true, file: null, thumbnail: null, isUploading: false, phase: null, stage: null })
             if (fileInputRef.current) fileInputRef.current.value = ''
             onSuccess?.()
         } catch (err) {
@@ -203,13 +205,14 @@ export function PendingUploadCard({ item, targetDate, onSuccess, isLate = false,
                     error: err.userMessage,
                     isUploading: false,
                     phase: null,
+                    stage: null,
                     isRetryable: err.isRetryable,
                     isUncertain: err.isUncertain,
                     pendingVideoId: err.pendingVideoId ?? null,
                 })
             } else {
                 console.error('Upload failed:', err)
-                updateState({ error: 'アップロードに失敗しました。', isUploading: false, phase: null })
+                updateState({ error: 'アップロードに失敗しました。', isUploading: false, phase: null, stage: null })
             }
         }
     }
@@ -265,9 +268,20 @@ export function PendingUploadCard({ item, targetDate, onSuccess, isLate = false,
         }
     }
 
-    const getPhaseLabel = (phase: UploadState['phase'], progress: number) => {
+    const getPhaseLabel = (phase: UploadState['phase'], stage: UploadState['stage'], progress: number) => {
+        if (phase === 'uploading') {
+            switch (stage) {
+                case 'preparing-video': return '動画を作成中...'
+                case 'preparing-wakelock':
+                case 'preparing-tus': return 'アップロード準備中...'
+                case 'stalled':
+                case 'uploading':
+                    return progress === 0 ? 'アップロードを開始しています...' : `アップロード中... ${progress}%`
+                default:
+                    return progress === 0 ? 'アップロード準備中...' : `アップロード中...`
+            }
+        }
         switch (phase) {
-            case 'uploading': return progress === 0 ? 'アップロード準備中...' : `アップロード中...`
             case 'verifying': return '処理を確認中...'
             case 'saving': return '保存中...'
             default: return 'アップロード中...'
@@ -366,16 +380,22 @@ export function PendingUploadCard({ item, targetDate, onSuccess, isLate = false,
                                     <div className="h-6 w-6 rounded-full border-2 border-primary/30
                                                     border-t-primary animate-spin mb-1.5" />
                                     <span className="text-[10px] font-medium animate-pulse">
-                                        {getPhaseLabel(state.phase, state.progress)}
+                                        {getPhaseLabel(state.phase, state.stage, state.progress)}
                                     </span>
                                 </>
                             ) : (
                                 <>
                                     <Progress value={state.progress} className="w-full h-1.5 mb-1.5" />
                                     <span className="text-[10px] font-medium animate-pulse">
-                                        {getPhaseLabel(state.phase, state.progress)}
+                                        {getPhaseLabel(state.phase, state.stage, state.progress)}
                                     </span>
-                                    {state.phase === 'uploading' && (
+                                    {state.stage === 'stalled' && (
+                                        <span className="text-[10px] text-yellow-600 font-semibold mt-1 flex items-center gap-1">
+                                            <AlertTriangle className="w-3 h-3" />
+                                            通信が遅延しています。お待ちください
+                                        </span>
+                                    )}
+                                    {state.phase === 'uploading' && state.stage !== 'stalled' && (
                                         <span className="text-[10px] text-muted-foreground mt-1">
                                             アップロード中は画面を閉じないでください
                                         </span>

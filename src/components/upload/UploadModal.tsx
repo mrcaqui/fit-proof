@@ -3,10 +3,10 @@ import { Database } from "@/types/database.types"
 import { useAuth } from '@/context/AuthContext'
 import { generateThumbnail } from '@/utils/thumbnail'
 import { calculateFileHash } from '@/utils/hash'
-import { executeUpload, UploadError, recheckVideoStatus, continueAfterRecheck } from '@/lib/upload-core'
+import { executeUpload, UploadError, recheckVideoStatus, continueAfterRecheck, type UploadStage } from '@/lib/upload-core'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
-import { Upload, CheckCircle, AlertCircle, Film, X, RefreshCw, RotateCcw } from 'lucide-react'
+import { Upload, CheckCircle, AlertCircle, AlertTriangle, Film, X, RefreshCw, RotateCcw } from 'lucide-react'
 import { format } from 'date-fns'
 import { ja } from 'date-fns/locale'
 import {
@@ -38,6 +38,7 @@ interface ItemUploadState {
     hash: string | null
     fileLastModified: string | null
     phase: 'uploading' | 'verifying' | 'saving' | null
+    stage: UploadStage | null
     isPreparing: boolean
     // For uncertain state (status -1)
     isRetryable: boolean
@@ -49,7 +50,7 @@ interface ItemUploadState {
 const defaultState: ItemUploadState = {
     file: null, thumbnail: null, duration: null, progress: 0, error: null,
     success: false, isUploading: false, hash: null, fileLastModified: null, phase: null,
-    isPreparing: false, isRetryable: false, isUncertain: false, pendingVideoId: null, isRechecking: false,
+    stage: null, isPreparing: false, isRetryable: false, isUncertain: false, pendingVideoId: null, isRechecking: false,
 }
 
 export function UploadModal({ targetDate, onClose, onSuccess, items, completedSubmissions, isLate = false }: UploadModalProps) {
@@ -176,7 +177,7 @@ export function UploadModal({ targetDate, onClose, onSuccess, items, completedSu
         if (!state?.file || !user) return
 
         updateState(itemId, {
-            isUploading: true, progress: 0, error: null, phase: 'uploading',
+            isUploading: true, progress: 0, error: null, phase: 'uploading', stage: 'preparing-video',
             isRetryable: false, isUncertain: false, pendingVideoId: null,
         })
 
@@ -196,9 +197,10 @@ export function UploadModal({ targetDate, onClose, onSuccess, items, completedSu
                 fileLastModified: state.fileLastModified,
                 onProgress: (progress) => updateState(itemId, { progress }),
                 onPhaseChange: (phase) => updateState(itemId, { phase }),
+                onStageChange: (stage) => updateState(itemId, { stage }),
             })
 
-            updateState(itemId, { success: true, file: null, thumbnail: null, isUploading: false, phase: null })
+            updateState(itemId, { success: true, file: null, thumbnail: null, isUploading: false, phase: null, stage: null })
             if (fileInputRefs.current[itemId]) {
                 fileInputRefs.current[itemId]!.value = ''
             }
@@ -209,13 +211,14 @@ export function UploadModal({ targetDate, onClose, onSuccess, items, completedSu
                     error: err.userMessage,
                     isUploading: false,
                     phase: null,
+                    stage: null,
                     isRetryable: err.isRetryable,
                     isUncertain: err.isUncertain,
                     pendingVideoId: err.pendingVideoId ?? null,
                 })
             } else {
                 console.error('Upload failed:', err)
-                updateState(itemId, { error: 'アップロードに失敗しました。', isUploading: false, phase: null })
+                updateState(itemId, { error: 'アップロードに失敗しました。', isUploading: false, phase: null, stage: null })
             }
         }
     }
@@ -275,9 +278,20 @@ export function UploadModal({ targetDate, onClose, onSuccess, items, completedSu
         }
     }
 
-    const getPhaseLabel = (phase: ItemUploadState['phase'], progress: number) => {
+    const getPhaseLabel = (phase: ItemUploadState['phase'], stage: ItemUploadState['stage'], progress: number) => {
+        if (phase === 'uploading') {
+            switch (stage) {
+                case 'preparing-video': return '動画を作成中...'
+                case 'preparing-wakelock':
+                case 'preparing-tus': return 'アップロード準備中...'
+                case 'stalled':
+                case 'uploading':
+                    return progress === 0 ? 'アップロードを開始しています...' : `アップロード中... ${progress}%`
+                default:
+                    return progress === 0 ? 'アップロード準備中...' : `アップロード中... ${progress}%`
+            }
+        }
         switch (phase) {
-            case 'uploading': return progress === 0 ? 'アップロード準備中...' : `アップロード中... ${progress}%`
             case 'verifying': return '処理を確認中...'
             case 'saving': return '保存中...'
             default: return 'アップロード中...'
@@ -385,16 +399,22 @@ export function UploadModal({ targetDate, onClose, onSuccess, items, completedSu
                                     <div className="h-8 w-8 rounded-full border-3 border-primary/30
                                                     border-t-primary animate-spin mb-2" />
                                     <span className="text-xs font-medium animate-pulse">
-                                        {getPhaseLabel(state.phase, state.progress)}
+                                        {getPhaseLabel(state.phase, state.stage, state.progress)}
                                     </span>
                                 </>
                             ) : (
                                 <>
                                     <Progress value={state.progress} className="w-full h-2 mb-2" />
                                     <span className="text-xs font-medium animate-pulse">
-                                        {getPhaseLabel(state.phase, state.progress)}
+                                        {getPhaseLabel(state.phase, state.stage, state.progress)}
                                     </span>
-                                    {state.phase === 'uploading' && (
+                                    {state.stage === 'stalled' && (
+                                        <span className="text-[11px] text-yellow-600 font-semibold mt-1 flex items-center gap-1">
+                                            <AlertTriangle className="w-3 h-3" />
+                                            通信が遅延しています。そのままお待ちください
+                                        </span>
+                                    )}
+                                    {state.phase === 'uploading' && state.stage !== 'stalled' && (
                                         <span className="text-[10px] text-muted-foreground mt-1">
                                             アップロード中は画面を閉じないでください
                                         </span>

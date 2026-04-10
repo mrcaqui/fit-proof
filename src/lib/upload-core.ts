@@ -6,6 +6,9 @@ import { acquireWakeLock } from '@/lib/upload-wakelock'
 import {
   BUNNY_CREATE_MAX_ATTEMPTS,
   BUNNY_CREATE_RETRY_DELAYS,
+  TUS_CHUNK_SIZE,
+  TUS_INITIAL_PROGRESS_TIMEOUT_MS,
+  TUS_STALLED_WARN_MS,
   getProcessingTimeout,
 } from '@/lib/upload-constants'
 
@@ -64,6 +67,13 @@ async function retryAsync<T>(
 
 // --- executeUpload ---
 
+export type UploadStage =
+  | 'preparing-video'
+  | 'preparing-wakelock'
+  | 'preparing-tus'
+  | 'uploading'
+  | 'stalled'
+
 export interface ExecuteUploadParams {
   file: File
   userId: string
@@ -76,6 +86,7 @@ export interface ExecuteUploadParams {
   fileLastModified: string | null
   onProgress?: (progress: number) => void
   onPhaseChange?: (phase: 'uploading' | 'verifying' | 'saving') => void
+  onStageChange?: (stage: UploadStage) => void
 }
 
 export interface ExecuteUploadResult {
@@ -95,6 +106,7 @@ export async function executeUpload(params: ExecuteUploadParams): Promise<Execut
     fileLastModified,
     onProgress,
     onPhaseChange,
+    onStageChange,
   } = params
 
   const logger = new UploadLogger(userId, file.name, file.size)
@@ -137,6 +149,7 @@ export async function executeUpload(params: ExecuteUploadParams): Promise<Execut
 
     // 3. Create Bunny video (with retry)
     onPhaseChange?.('uploading')
+    onStageChange?.('preparing-video')
     const bunnyPhase = logger.startPhase('bunny-create')
     let bunnyResult: Awaited<ReturnType<typeof createBunnyVideo>>
     try {
@@ -151,7 +164,7 @@ export async function executeUpload(params: ExecuteUploadParams): Promise<Execut
       )
       bunnyVideoId = bunnyResult.videoId
       bunnyPhase.complete({ videoId: bunnyResult.videoId })
-      // 早期flush: TUS失敗しても「アップロード試行あり」の証拠をサーバーに残す
+      // 早期flush: TUS失敗しても「アップロード試行あり」の証拠をサーバーに残す (non-final)
       logger.flush().catch(() => {})
     } catch (err) {
       bunnyPhase.fail(err)
@@ -166,14 +179,54 @@ export async function executeUpload(params: ExecuteUploadParams): Promise<Execut
     // 4. TUS upload
     const tusPhase = logger.startPhase('tus-upload')
     const stopNetworkMonitor = logger.startNetworkMonitor()
-    const releaseWakeLock = await acquireWakeLock()
+
+    // Token キャッシュ + refresh 追跡 (unload beacon 用)
+    const { data: { session: initialSession } } = await supabase.auth.getSession()
+    let currentAccessToken: string | null = initialSession?.access_token ?? null
+    const { data: { subscription: authSub } } = supabase.auth.onAuthStateChange((_event, session) => {
+      currentAccessToken = session?.access_token ?? null
+    })
+    logger.installUnloadBeacon(() => currentAccessToken)
+
+    onStageChange?.('preparing-wakelock')
+    logger.logInfo('tus-upload', 'wakelock-acquire-start')
+    const wl = await acquireWakeLock()
+    logger.logInfo('tus-upload', 'wakelock-acquire-done', {
+      acquired: wl.acquired,
+      elapsedMs: wl.elapsedMs,
+      timedOut: wl.timedOut,
+    })
+    const releaseWakeLock = wl.release
+    onStageChange?.('preparing-tus')
     try {
       let tusRetryCount = 0
       let lastLoggedPercent = -10
       let lastLoggedTime = Date.now()
+      let firstProgressReceived = false
+      const tusStartTime = Date.now()
+      let initialProgressTimeout: ReturnType<typeof setTimeout> | null = null
+      let stalledWarnTimeout: ReturnType<typeof setTimeout> | null = null
+      let stalledSignaled = false
+
+      const clearInitialTimers = () => {
+        if (initialProgressTimeout) {
+          clearTimeout(initialProgressTimeout)
+          initialProgressTimeout = null
+        }
+        if (stalledWarnTimeout) {
+          clearTimeout(stalledWarnTimeout)
+          stalledWarnTimeout = null
+        }
+      }
+
       await new Promise<void>((resolve, reject) => {
+        logger.logInfo('tus-upload', 'tus-construct-start', {
+          chunkSize: TUS_CHUNK_SIZE,
+          fileSize: file.size,
+        })
         const upload = new tus.Upload(file, {
           endpoint: bunnyResult.tusEndpoint,
+          chunkSize: TUS_CHUNK_SIZE,
           retryDelays: [0, 1000, 3000, 5000],
           headers: {
             AuthorizationSignature: bunnyResult.authorizationSignature,
@@ -199,9 +252,28 @@ export async function executeUpload(params: ExecuteUploadParams): Promise<Execut
             logger.logRetry('tus-upload', tusRetryCount, error)
             return true
           },
-          onError: (error) => reject(error),
+          onError: (error) => {
+            clearInitialTimers()
+            reject(error)
+          },
           onProgress: (bytesUploaded, bytesTotal) => {
             const percent = Math.round((bytesUploaded / bytesTotal) * 100)
+
+            if (!firstProgressReceived) {
+              firstProgressReceived = true
+              clearInitialTimers()
+              logger.logInfo('tus-upload', 'first-progress', {
+                bytesUploaded,
+                elapsedMs: Date.now() - tusStartTime,
+              })
+              if (stalledSignaled) {
+                onStageChange?.('uploading')
+                stalledSignaled = false
+              } else {
+                onStageChange?.('uploading')
+              }
+            }
+
             onProgress?.(percent)
 
             // Throttled progress log: every 10% or 30 seconds
@@ -217,15 +289,44 @@ export async function executeUpload(params: ExecuteUploadParams): Promise<Execut
               lastLoggedTime = now
             }
           },
-          onSuccess: () => resolve(),
+          onSuccess: () => {
+            clearInitialTimers()
+            resolve()
+          },
         })
+        logger.logInfo('tus-upload', 'tus-construct-done')
+
+        logger.logInfo('tus-upload', 'find-previous-start')
         upload
           .findPreviousUploads()
           .then((prev) => {
+            logger.logInfo('tus-upload', 'find-previous-done', { count: prev.length })
             if (prev.length > 0) upload.resumeFromPreviousUpload(prev[0])
             upload.start()
+            logger.logInfo('tus-upload', 'upload-start-called')
           })
-          .catch(() => upload.start())
+          .catch((err) => {
+            logger.logInfo('tus-upload', 'find-previous-fail', { error: String(err) })
+            upload.start()
+            logger.logInfo('tus-upload', 'upload-start-called')
+          })
+
+        // 初動 30 秒タイムアウト
+        initialProgressTimeout = setTimeout(() => {
+          if (firstProgressReceived) return
+          logger.logInfo('tus-upload', 'no-progress-timeout', {
+            elapsedMs: TUS_INITIAL_PROGRESS_TIMEOUT_MS,
+          })
+          upload.abort().catch(() => {})
+          reject(new Error('TUS upload stalled: no progress in 30s'))
+        }, TUS_INITIAL_PROGRESS_TIMEOUT_MS)
+
+        // 10 秒 stalled 警告
+        stalledWarnTimeout = setTimeout(() => {
+          if (firstProgressReceived) return
+          stalledSignaled = true
+          onStageChange?.('stalled')
+        }, TUS_STALLED_WARN_MS)
       })
       tusPhase.complete({ tusRetries: tusRetryCount })
     } catch (err) {
@@ -239,6 +340,8 @@ export async function executeUpload(params: ExecuteUploadParams): Promise<Execut
     } finally {
       stopNetworkMonitor()
       releaseWakeLock()
+      logger.uninstallUnloadBeacon()
+      authSub.unsubscribe()
     }
 
     // 5. Wait for Bunny processing (file-size-dependent timeout)
@@ -361,8 +464,8 @@ export async function executeUpload(params: ExecuteUploadParams): Promise<Execut
     const completePhase = logger.startPhase('complete')
     completePhase.complete()
 
-    // Flush logs to server (fire-and-forget)
-    logger.flush().catch(() => {})
+    // Flush logs to server (final — pending 削除を確定させる)
+    await logger.flush({ final: true }).catch(() => {})
 
     return { success: true }
   } catch (err) {
@@ -388,8 +491,8 @@ export async function executeUpload(params: ExecuteUploadParams): Promise<Execut
       )
     }
 
-    // Flush logs to server (fire-and-forget)
-    logger.flush().catch(() => {})
+    // Flush logs to server (final — エラーハンドリング完了)
+    await logger.flush({ final: true }).catch(() => {})
 
     if (err instanceof UploadError) throw err
 

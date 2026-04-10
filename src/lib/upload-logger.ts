@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase'
+import { sendLogsOnUnload } from '@/lib/upload-beacon'
 
 // --- Types ---
 
@@ -96,6 +97,7 @@ export function getDeviceInfo(): DeviceInfo {
 
 const MAX_SESSIONS = 50
 const STORAGE_PREFIX = 'fit-proof:upload-logs:'
+const AUTO_FLUSH_INTERVAL_MS = 2_000
 
 // --- Helpers ---
 
@@ -128,12 +130,25 @@ export class UploadLogger {
   private fileName: string | null
   private entries: UploadLogEntry[] = []
   private lastFlushedCount = 0
+  private lastAutoFlushAt = 0
+  private flushInFlight: Promise<void> | null = null
+  private nextPending: { finalRequested: boolean; promise: Promise<void> } | null = null
+  private beaconCleanup: (() => void) | null = null
+  private beaconSent = false
 
   constructor(userId: string, fileName?: string, fileSize?: number) {
     this.userId = userId
     this.sessionId = crypto.randomUUID()
     this.fileName = fileName ?? null
     this.fileSize = fileSize ?? null
+  }
+
+  /** 任意エントリを追加し、pendingフラグと自動flushをスケジュール */
+  private recordEntry(entry: UploadLogEntry) {
+    this.entries.push(entry)
+    this.persistToLocalStorage()
+    this.markPendingFlush()
+    this.scheduleAutoFlush()
   }
 
   /** Start a phase and get a handle to complete/fail it */
@@ -154,9 +169,7 @@ export class UploadLogger {
       extra: null,
     }
 
-    // Persist start entry to localStorage (evidence that phase began)
-    this.entries.push(entry)
-    this.persistToLocalStorage()
+    this.recordEntry(entry)
     console.log(`[upload][${phase}][start]`, { sessionId: this.sessionId })
 
     return {
@@ -170,8 +183,7 @@ export class UploadLogger {
           extra: extra ?? null,
           networkState: getNetworkState(),
         }
-        this.entries.push(completeEntry)
-        this.persistToLocalStorage()
+        this.recordEntry(completeEntry)
         console.log(`[upload][${phase}][success]`, { durationMs, ...extra })
       },
       fail: (error: unknown, extra?: Record<string, unknown>) => {
@@ -185,8 +197,7 @@ export class UploadLogger {
           extra: extra ?? null,
           networkState: getNetworkState(),
         }
-        this.entries.push(failEntry)
-        this.persistToLocalStorage()
+        this.recordEntry(failEntry)
         console.log(`[upload][${phase}][fail]`, { durationMs, error })
       },
     }
@@ -207,8 +218,7 @@ export class UploadLogger {
       networkState: getNetworkState(),
       extra: { attempt },
     }
-    this.entries.push(retryEntry)
-    this.persistToLocalStorage()
+    this.recordEntry(retryEntry)
     console.log(`[upload][${phase}][retry]`, { attempt, error })
   }
 
@@ -227,60 +237,39 @@ export class UploadLogger {
       networkState: getNetworkState(),
       extra,
     }
-    this.entries.push(progressEntry)
-    this.persistToLocalStorage()
+    this.recordEntry(progressEntry)
     console.log(`[upload][${phase}][progress]`, extra)
+  }
+
+  /** info チェックポイントをログに記録する */
+  logInfo(phase: UploadPhase, event: string, extra?: Record<string, unknown>) {
+    const infoEntry: UploadLogEntry = {
+      userId: this.userId,
+      sessionId: this.sessionId,
+      timestamp: new Date().toISOString(),
+      phase,
+      status: 'info',
+      durationMs: null,
+      fileSize: this.fileSize,
+      fileName: this.fileName,
+      error: null,
+      networkState: getNetworkState(),
+      extra: { event, ...(extra ?? {}) },
+    }
+    this.recordEntry(infoEntry)
+    console.log(`[upload][${phase}][info]`, { event, ...extra })
   }
 
   /** TUSアップロード中のonline/offlineイベントを監視してログに記録する */
   startNetworkMonitor(): () => void {
     const handleOffline = () => {
-      this.entries.push({
-        userId: this.userId,
-        sessionId: this.sessionId,
-        timestamp: new Date().toISOString(),
-        phase: 'tus-upload',
-        status: 'info',
-        durationMs: null,
-        fileSize: this.fileSize,
-        fileName: this.fileName,
-        error: null,
-        networkState: getNetworkState(),
-        extra: { event: 'network-offline' },
-      })
-      this.persistToLocalStorage()
+      this.logInfo('tus-upload', 'network-offline')
     }
     const handleOnline = () => {
-      this.entries.push({
-        userId: this.userId,
-        sessionId: this.sessionId,
-        timestamp: new Date().toISOString(),
-        phase: 'tus-upload',
-        status: 'info',
-        durationMs: null,
-        fileSize: this.fileSize,
-        fileName: this.fileName,
-        error: null,
-        networkState: getNetworkState(),
-        extra: { event: 'network-online' },
-      })
-      this.persistToLocalStorage()
+      this.logInfo('tus-upload', 'network-online')
     }
     const handleVisibilityChange = () => {
-      this.entries.push({
-        userId: this.userId,
-        sessionId: this.sessionId,
-        timestamp: new Date().toISOString(),
-        phase: 'tus-upload',
-        status: 'info',
-        durationMs: null,
-        fileSize: this.fileSize,
-        fileName: this.fileName,
-        error: null,
-        networkState: getNetworkState(),
-        extra: { event: `visibility-${document.visibilityState}` },
-      })
-      this.persistToLocalStorage()
+      this.logInfo('tus-upload', `visibility-${document.visibilityState}`)
     }
     window.addEventListener('online', handleOnline)
     window.addEventListener('offline', handleOffline)
@@ -292,34 +281,130 @@ export class UploadLogger {
     }
   }
 
-  /** Flush session entries to Supabase (upsert) — 複数回呼び出し可能（watermark方式） */
-  async flush(): Promise<void> {
-    const currentCount = this.entries.length
-    if (currentCount === 0 || currentCount === this.lastFlushedCount) return
+  /**
+   * pagehide / visibilitychange=hidden 時に最新エントリを fetch keepalive で送信する
+   * @param getAccessToken pagehide 時点で同期的に最新 token を取得するためのコールバック
+   */
+  installUnloadBeacon(getAccessToken: () => string | null): void {
+    if (this.beaconCleanup) return
 
-    try {
-      const { error } = await supabase.from('upload_logs' as any).upsert(
-        {
-          user_id: this.userId,
-          session_id: this.sessionId,
-          entries: this.entries.slice(),  // スナップショットを送信
-        } as any,
-        { onConflict: 'user_id,session_id' }
-      )
-
-      if (error) {
-        console.error('[upload-logger] Flush to server failed:', error)
-        this.markPendingFlush()
-        return
-      }
-
-      // flush開始時点の件数で更新（flush中に増えた分は次回flushで送信される）
-      this.lastFlushedCount = currentCount
-      this.removePendingFlag()
-    } catch (e) {
-      console.error('[upload-logger] Flush network error:', e)
-      this.markPendingFlush()
+    const sendOnce = () => {
+      if (this.beaconSent) return
+      const token = getAccessToken()
+      if (!token) return
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined
+      const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined
+      if (!supabaseUrl || !anonKey) return
+      const ok = sendLogsOnUnload({
+        supabaseUrl,
+        anonKey,
+        accessToken: token,
+        userId: this.userId,
+        sessionId: this.sessionId,
+        entries: this.entries.slice(),
+      })
+      if (ok) this.beaconSent = true
     }
+
+    const handlePageHide = () => sendOnce()
+    const handleVisibility = () => {
+      if (document.visibilityState === 'hidden') sendOnce()
+    }
+
+    window.addEventListener('pagehide', handlePageHide)
+    document.addEventListener('visibilitychange', handleVisibility)
+
+    this.beaconCleanup = () => {
+      window.removeEventListener('pagehide', handlePageHide)
+      document.removeEventListener('visibilitychange', handleVisibility)
+    }
+  }
+
+  uninstallUnloadBeacon(): void {
+    this.beaconCleanup?.()
+    this.beaconCleanup = null
+  }
+
+  /**
+   * 直列化された flush。進行中があれば待機し、final 要求は batch 内で OR 集約する。
+   */
+  async flush(options?: { final?: boolean }): Promise<void> {
+    const wantFinal = options?.final === true
+
+    if (this.flushInFlight) {
+      if (!this.nextPending) {
+        const batch = {
+          finalRequested: wantFinal,
+          promise: null as unknown as Promise<void>,
+        }
+        batch.promise = this.flushInFlight.then(async () => {
+          // batch を取り出してから次の flush を走らせる。
+          // 参照を外すことで、次の flush 中に来る caller が新しい batch を作れる。
+          this.nextPending = null
+          await this._runFlush({ final: batch.finalRequested })
+        })
+        this.nextPending = batch
+      } else {
+        this.nextPending.finalRequested = this.nextPending.finalRequested || wantFinal
+      }
+      return this.nextPending.promise
+    }
+
+    return this._runFlush({ final: wantFinal })
+  }
+
+  private _runFlush(options: { final: boolean }): Promise<void> {
+    const p = this._doFlush(options).finally(() => {
+      if (this.flushInFlight === p) this.flushInFlight = null
+    })
+    this.flushInFlight = p
+    return p
+  }
+
+  private async _doFlush(options: { final: boolean }): Promise<void> {
+    const currentCount = this.entries.length
+    const hasNewEntries = currentCount > 0 && currentCount !== this.lastFlushedCount
+    let sendOk = true
+
+    if (hasNewEntries) {
+      try {
+        const { error } = await supabase.from('upload_logs' as any).upsert(
+          {
+            user_id: this.userId,
+            session_id: this.sessionId,
+            entries: this.entries.slice(),
+          } as any,
+          { onConflict: 'user_id,session_id' }
+        )
+
+        if (error) {
+          console.error('[upload-logger] Flush to server failed:', error)
+          this.markPendingFlush()
+          sendOk = false
+        } else {
+          this.lastFlushedCount = currentCount
+        }
+      } catch (e) {
+        console.error('[upload-logger] Flush network error:', e)
+        this.markPendingFlush()
+        sendOk = false
+      }
+    }
+
+    this.lastAutoFlushAt = Date.now()
+
+    // final 呼び出し時のみ pending 除外を評価 (送信不要 or 送信成功の場合のみ)
+    if (options.final && sendOk) {
+      this.removePendingFlag()
+    }
+  }
+
+  /** 2秒節流で自動 flush を走らせる (fire-and-forget) */
+  private scheduleAutoFlush() {
+    const now = Date.now()
+    if (now - this.lastAutoFlushAt < AUTO_FLUSH_INTERVAL_MS) return
+    // 進行中 flush がある場合は直列化により内部で待機される
+    this.flush().catch(() => {})
   }
 
   // --- LocalStorage persistence ---

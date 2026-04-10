@@ -30,7 +30,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         supabase.auth.getSession().then(({ data: { session } }) => {
             setSession(session)
             setUser(session?.user ?? null)
-            if (session?.user) fetchProfile(session.user.id, session.user.email)
+            if (session?.user) {
+                // 前回失敗したアップロードログflushをリトライ (Profile 取得の成否に依存しない)
+                UploadLogger.retryPendingFlush(session.user.id).catch(() => {})
+                fetchProfile(session.user.id, session.user.email)
+            }
             else setLoading(false)
         })
 
@@ -39,7 +43,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             (_event, session) => {
                 setSession(session)
                 setUser(session?.user ?? null)
-                if (session?.user) fetchProfile(session.user.id, session.user.email, session.user.user_metadata)
+                if (session?.user) {
+                    // SIGNED_IN のみ retry (TOKEN_REFRESHED 等では呼ばない)
+                    if (_event === 'SIGNED_IN') {
+                        UploadLogger.retryPendingFlush(session.user.id).catch(() => {})
+                    }
+                    fetchProfile(session.user.id, session.user.email, session.user.user_metadata)
+                }
                 else {
                     setProfile(null)
                     setLoading(false)
@@ -175,9 +185,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             }
 
             // authorized_users.user_id のリンクはDBトリガー（on_profile_insert）が自動処理
-
-            // 前回失敗したアップロードログflushをリトライ
-            UploadLogger.retryPendingFlush(userId).catch(() => {})
         } finally {
             setLoading(false)
         }
