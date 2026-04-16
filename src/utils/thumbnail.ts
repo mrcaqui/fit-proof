@@ -2,6 +2,11 @@
  * Extracts a thumbnail frame from a video file at the specified time.
  * Returns a base64 data URL of the thumbnail image.
  */
+
+// 長辺 640px にクランプ。iOS Safari での jetsam 回避のため、4K 原寸 canvas が
+// 約 33MB になるのを避ける（v2.8.4、2026-04-16）。
+const MAX_LONG_EDGE = 640
+
 export async function generateThumbnail(
     file: File,
     seekTime: number = 1 // seconds into video to capture
@@ -26,6 +31,9 @@ export async function generateThumbnail(
             URL.revokeObjectURL(video.src)
             video.src = ''
             video.load()
+            // GPU バックバッファを即解放する
+            canvas.width = 0
+            canvas.height = 0
         }
 
         video.onloadedmetadata = () => {
@@ -34,13 +42,18 @@ export async function generateThumbnail(
         }
 
         video.onseeked = () => {
-            canvas.width = video.videoWidth
-            canvas.height = video.videoHeight
+            const srcW = video.videoWidth
+            const srcH = video.videoHeight
+            const scale = Math.min(1, MAX_LONG_EDGE / Math.max(srcW, srcH))
+            const dstW = Math.max(1, Math.round(srcW * scale))
+            const dstH = Math.max(1, Math.round(srcH * scale))
+            canvas.width = dstW
+            canvas.height = dstH
 
             if (ctx) {
                 try {
-                    ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
-                    const dataUrl = canvas.toDataURL('image/jpeg', 0.8)
+                    ctx.drawImage(video, 0, 0, dstW, dstH)
+                    const dataUrl = canvas.toDataURL('image/jpeg', 0.75)
                     cleanup()
                     resolve(dataUrl)
                 } catch (err) {
