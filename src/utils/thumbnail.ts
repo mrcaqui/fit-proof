@@ -12,13 +12,15 @@ export async function generateThumbnail(
     seekTime: number = 1 // seconds into video to capture
 ): Promise<string> {
     return new Promise((resolve, reject) => {
-        const video = document.createElement('video')
+        let video: HTMLVideoElement | null = document.createElement('video')
         video.preload = 'metadata'
         video.muted = true
         video.playsInline = true
 
-        const canvas = document.createElement('canvas')
-        const ctx = canvas.getContext('2d')
+        let canvas: HTMLCanvasElement | null = document.createElement('canvas')
+        let ctx: CanvasRenderingContext2D | null = canvas.getContext('2d')
+
+        const objectUrl = URL.createObjectURL(file)
 
         // Add timeout for generation
         const timeout = setTimeout(() => {
@@ -26,22 +28,34 @@ export async function generateThumbnail(
             reject(new Error('Thumbnail generation timed out'))
         }, 5000)
 
+        // iOS WebKit の decoder / GPU バッファを確実に解放するため、video と canvas を
+        // 段階的に teardown して参照も落とす。
         const cleanup = () => {
             clearTimeout(timeout)
-            URL.revokeObjectURL(video.src)
-            video.src = ''
-            video.load()
-            // GPU バックバッファを即解放する
-            canvas.width = 0
-            canvas.height = 0
+            if (video) {
+                try { video.pause() } catch { /* ignore */ }
+                try { video.removeAttribute('src') } catch { /* ignore */ }
+                try { (video as any).srcObject = null } catch { /* ignore */ }
+                try { video.load() } catch { /* ignore */ }
+            }
+            URL.revokeObjectURL(objectUrl)
+            if (canvas) {
+                canvas.width = 0
+                canvas.height = 0
+            }
+            ctx = null
+            canvas = null
+            video = null
         }
 
         video.onloadedmetadata = () => {
+            if (!video) return
             // Seek to the desired time (or end if video is shorter)
             video.currentTime = Math.min(seekTime, video.duration)
         }
 
         video.onseeked = () => {
+            if (!video || !canvas) return
             const srcW = video.videoWidth
             const srcH = video.videoHeight
             const scale = Math.min(1, MAX_LONG_EDGE / Math.max(srcW, srcH))
@@ -71,6 +85,6 @@ export async function generateThumbnail(
             reject(new Error('Error loading video for thumbnail'))
         }
 
-        video.src = URL.createObjectURL(file)
+        video.src = objectUrl
     })
 }

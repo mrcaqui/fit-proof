@@ -3,7 +3,8 @@ import { Database } from "@/types/database.types"
 import { useAuth } from '@/context/AuthContext'
 import { generateThumbnail } from '@/utils/thumbnail'
 import { calculateFileHash } from '@/utils/hash'
-import { executeUpload, UploadError, recheckVideoStatus, continueAfterRecheck, type UploadStage } from '@/lib/upload-core'
+import { executeUpload, UploadError, recheckVideoStatus, continueAfterRecheck, type UploadStage, type ThumbnailStrategy } from '@/lib/upload-core'
+import { isIOS } from '@/lib/upload-logger'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
 import { Upload, CheckCircle, AlertCircle, AlertTriangle, Film, X, RefreshCw, RotateCcw } from 'lucide-react'
@@ -14,6 +15,7 @@ import {
   ACCEPT_ATTRIBUTE,
   FORMAT_LABEL,
   SIZE_LABEL,
+  LARGE_FILE_THUMBNAIL_SKIP_THRESHOLD_BYTES,
   isAllowedVideoFile,
 } from '@/lib/upload-constants'
 import { useUploadGuard } from '@/hooks/useUploadGuard'
@@ -30,6 +32,7 @@ interface UploadModalProps {
 interface ItemUploadState {
     file: File | null
     thumbnail: string | null
+    thumbnailStrategy: ThumbnailStrategy
     duration: number | null
     progress: number
     error: string | null
@@ -48,7 +51,7 @@ interface ItemUploadState {
 }
 
 const defaultState: ItemUploadState = {
-    file: null, thumbnail: null, duration: null, progress: 0, error: null,
+    file: null, thumbnail: null, thumbnailStrategy: 'downscaled', duration: null, progress: 0, error: null,
     success: false, isUploading: false, hash: null, fileLastModified: null, phase: null,
     stage: null, isPreparing: false, isRetryable: false, isUncertain: false, pendingVideoId: null, isRechecking: false,
 }
@@ -85,8 +88,9 @@ export function UploadModal({ targetDate, onClose, onSuccess, items, completedSu
 
     const getVideoDuration = (file: File): Promise<number> => {
         return new Promise((resolve, reject) => {
-            const video = document.createElement('video')
+            let video: HTMLVideoElement | null = document.createElement('video')
             video.preload = 'metadata'
+            const objectUrl = URL.createObjectURL(file)
 
             const timeout = setTimeout(() => {
                 cleanup()
@@ -95,12 +99,18 @@ export function UploadModal({ targetDate, onClose, onSuccess, items, completedSu
 
             const cleanup = () => {
                 clearTimeout(timeout)
-                URL.revokeObjectURL(video.src)
-                video.src = ''
-                video.load()
+                if (video) {
+                    try { video.pause() } catch { /* ignore */ }
+                    try { video.removeAttribute('src') } catch { /* ignore */ }
+                    try { (video as any).srcObject = null } catch { /* ignore */ }
+                    try { video.load() } catch { /* ignore */ }
+                }
+                URL.revokeObjectURL(objectUrl)
+                video = null
             }
 
             video.onloadedmetadata = () => {
+                if (!video) return
                 const duration = video.duration
                 cleanup()
                 resolve(duration)
@@ -109,7 +119,7 @@ export function UploadModal({ targetDate, onClose, onSuccess, items, completedSu
                 cleanup()
                 reject(new Error('Error loading video for duration'))
             }
-            video.src = URL.createObjectURL(file)
+            video.src = objectUrl
         })
     }
 
@@ -141,21 +151,40 @@ export function UploadModal({ targetDate, onClose, onSuccess, items, completedSu
             ? new Date(selectedFile.lastModified).toISOString()
             : null
 
-        updateState(itemId, { file: selectedFile, thumbnail: null, duration: null, error: null, success: false, isPreparing: true, fileLastModified })
+        updateState(itemId, { file: selectedFile, thumbnail: null, thumbnailStrategy: 'downscaled', duration: null, error: null, success: false, isPreparing: true, fileLastModified })
 
         // 前回のハッシュ計算を中断
         hashAbortRef.current[itemId]?.abort()
 
         try {
-            // Step 1: サムネイル + 動画長（軽量I/O、並列OK）
-            const [thumbUrl, duration] = await Promise.all([
-                generateThumbnail(selectedFile).catch(err => { console.error('Thumbnail generation failed:', err); return null }),
-                getVideoDuration(selectedFile).catch(err => { console.error('Duration extraction failed:', err); return null }),
-            ])
+            // Step 1: サムネイル生成と動画長抽出
+            // iOS + 大容量では <video> decode + canvas drawImage + toDataURL の native メモリ
+            // ピークが jetsam の主因と推定されるためサムネ生成自体をスキップする。
+            // それ以外は直列化（Promise.all だと <video> を 2 本同時に保持するため）。
+            const skipThumbnail = isIOS() && selectedFile.size >= LARGE_FILE_THUMBNAIL_SKIP_THRESHOLD_BYTES
+            let thumbUrl: string | null = null
+            let strategy: ThumbnailStrategy = 'downscaled'
+            if (skipThumbnail) {
+                strategy = 'skipped'
+            } else {
+                try {
+                    thumbUrl = await generateThumbnail(selectedFile)
+                    strategy = 'downscaled'
+                } catch (err) {
+                    console.error('Thumbnail generation failed:', err)
+                    thumbUrl = null
+                    strategy = 'failed'
+                }
+            }
+            if (fileSelectCounterRef.current[itemId] !== counter) return
+
+            const duration = await getVideoDuration(selectedFile).catch(err => {
+                console.error('Duration extraction failed:', err); return null
+            })
             if (fileSelectCounterRef.current[itemId] !== counter) return
 
             // サムネイルを即時反映してからハッシュ計算へ
-            updateState(itemId, { thumbnail: thumbUrl, duration })
+            updateState(itemId, { thumbnail: thumbUrl, thumbnailStrategy: strategy, duration })
 
             // Step 2: ハッシュ計算（AbortSignal付き）
             const abortController = new AbortController()
@@ -191,6 +220,7 @@ export function UploadModal({ targetDate, onClose, onSuccess, items, completedSu
                 targetDate: targetDateStr,
                 submissionItemId: normalizedItemId,
                 thumbnail: state.thumbnail,
+                thumbnailStrategy: state.thumbnailStrategy,
                 duration: state.duration,
                 hash: state.hash,
                 isLate,
@@ -381,6 +411,11 @@ export function UploadModal({ targetDate, onClose, onSuccess, items, completedSu
                                     <p className="text-[9px] text-primary font-bold animate-pulse mt-1">
                                         {state.isPreparing ? '読み込み中...' : 'アップロード準備完了'}
                                     </p>
+                                    {state.thumbnailStrategy === 'skipped' && !state.isPreparing && (
+                                        <p className="text-[9px] text-muted-foreground mt-0.5">
+                                            端末メモリ制約のためサムネを省略しています
+                                        </p>
+                                    )}
                                 </div>
                             </div>
                         )}

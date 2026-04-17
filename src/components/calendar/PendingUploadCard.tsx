@@ -3,7 +3,8 @@ import { Database } from '@/types/database.types'
 import { useAuth } from '@/context/AuthContext'
 import { generateThumbnail } from '@/utils/thumbnail'
 import { calculateFileHash } from '@/utils/hash'
-import { executeUpload, UploadError, recheckVideoStatus, continueAfterRecheck, type UploadStage } from '@/lib/upload-core'
+import { executeUpload, UploadError, recheckVideoStatus, continueAfterRecheck, type UploadStage, type ThumbnailStrategy } from '@/lib/upload-core'
+import { isIOS } from '@/lib/upload-logger'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
@@ -14,6 +15,7 @@ import {
   ACCEPT_ATTRIBUTE,
   FORMAT_LABEL,
   SIZE_LABEL,
+  LARGE_FILE_THUMBNAIL_SKIP_THRESHOLD_BYTES,
   isAllowedVideoFile,
 } from '@/lib/upload-constants'
 import { useUploadGuard } from '@/hooks/useUploadGuard'
@@ -31,6 +33,7 @@ interface PendingUploadCardProps {
 interface UploadState {
     file: File | null
     thumbnail: string | null
+    thumbnailStrategy: ThumbnailStrategy
     duration: number | null
     progress: number
     error: string | null
@@ -48,7 +51,7 @@ interface UploadState {
 }
 
 const initialState: UploadState = {
-    file: null, thumbnail: null, duration: null, progress: 0, error: null,
+    file: null, thumbnail: null, thumbnailStrategy: 'downscaled', duration: null, progress: 0, error: null,
     success: false, isUploading: false, hash: null, fileLastModified: null, phase: null,
     stage: null, isPreparing: false, isRetryable: false, isUncertain: false, pendingVideoId: null, isRechecking: false,
 }
@@ -75,8 +78,9 @@ export function PendingUploadCard({ item, targetDate, onSuccess, isLate = false,
 
     const getVideoDuration = (file: File): Promise<number> => {
         return new Promise((resolve, reject) => {
-            const video = document.createElement('video')
+            let video: HTMLVideoElement | null = document.createElement('video')
             video.preload = 'metadata'
+            const objectUrl = URL.createObjectURL(file)
 
             const timeout = setTimeout(() => {
                 cleanup()
@@ -85,12 +89,18 @@ export function PendingUploadCard({ item, targetDate, onSuccess, isLate = false,
 
             const cleanup = () => {
                 clearTimeout(timeout)
-                URL.revokeObjectURL(video.src)
-                video.src = ''
-                video.load()
+                if (video) {
+                    try { video.pause() } catch { /* ignore */ }
+                    try { video.removeAttribute('src') } catch { /* ignore */ }
+                    try { (video as any).srcObject = null } catch { /* ignore */ }
+                    try { video.load() } catch { /* ignore */ }
+                }
+                URL.revokeObjectURL(objectUrl)
+                video = null
             }
 
             video.onloadedmetadata = () => {
+                if (!video) return
                 const duration = video.duration
                 cleanup()
                 resolve(duration)
@@ -99,7 +109,7 @@ export function PendingUploadCard({ item, targetDate, onSuccess, isLate = false,
                 cleanup()
                 reject(new Error('Error loading video for duration'))
             }
-            video.src = URL.createObjectURL(file)
+            video.src = objectUrl
         })
     }
 
@@ -131,21 +141,38 @@ export function PendingUploadCard({ item, targetDate, onSuccess, isLate = false,
             ? new Date(selectedFile.lastModified).toISOString()
             : null
 
-        updateState({ file: selectedFile, thumbnail: null, duration: null, error: null, success: false, isPreparing: true, fileLastModified })
+        updateState({ file: selectedFile, thumbnail: null, thumbnailStrategy: 'downscaled', duration: null, error: null, success: false, isPreparing: true, fileLastModified })
 
         // 前回のハッシュ計算を中断
         hashAbortRef.current?.abort()
 
         try {
-            // Step 1: サムネイル + 動画長（軽量I/O、並列OK）
-            const [thumbUrl, duration] = await Promise.all([
-                generateThumbnail(selectedFile).catch(() => null),
-                getVideoDuration(selectedFile).catch(() => null),
-            ])
+            // Step 1: サムネイル生成と動画長抽出
+            // iOS + 大容量では <video> decode + canvas drawImage + toDataURL の native メモリ
+            // ピークが jetsam の主因と推定されるためサムネ生成自体をスキップする。
+            // それ以外は直列化（Promise.all だと <video> を 2 本同時に保持するため）。
+            const skipThumbnail = isIOS() && selectedFile.size >= LARGE_FILE_THUMBNAIL_SKIP_THRESHOLD_BYTES
+            let thumbUrl: string | null = null
+            let strategy: ThumbnailStrategy = 'downscaled'
+            if (skipThumbnail) {
+                strategy = 'skipped'
+            } else {
+                try {
+                    thumbUrl = await generateThumbnail(selectedFile)
+                    strategy = 'downscaled'
+                } catch (err) {
+                    console.error('Thumbnail generation failed:', err)
+                    thumbUrl = null
+                    strategy = 'failed'
+                }
+            }
+            if (fileSelectCounterRef.current !== counter) return
+
+            const duration = await getVideoDuration(selectedFile).catch(() => null)
             if (fileSelectCounterRef.current !== counter) return
 
             // サムネイルを即時反映してからハッシュ計算へ
-            updateState({ thumbnail: thumbUrl, duration })
+            updateState({ thumbnail: thumbUrl, thumbnailStrategy: strategy, duration })
 
             // Step 2: ハッシュ計算（AbortSignal付き）
             const abortController = new AbortController()
@@ -165,7 +192,7 @@ export function PendingUploadCard({ item, targetDate, onSuccess, isLate = false,
     const handleClearFile = () => {
         if (readOnly) return
         fileSelectCounterRef.current++
-        updateState({ file: null, thumbnail: null, duration: null, hash: null, fileLastModified: null, error: null, isPreparing: false, isRetryable: false, isUncertain: false, pendingVideoId: null })
+        updateState({ file: null, thumbnail: null, thumbnailStrategy: 'downscaled', duration: null, hash: null, fileLastModified: null, error: null, isPreparing: false, isRetryable: false, isUncertain: false, pendingVideoId: null })
         if (fileInputRef.current) fileInputRef.current.value = ''
     }
 
@@ -187,6 +214,7 @@ export function PendingUploadCard({ item, targetDate, onSuccess, isLate = false,
                 targetDate: targetDateStr,
                 submissionItemId: item.id,
                 thumbnail: state.thumbnail,
+                thumbnailStrategy: state.thumbnailStrategy,
                 duration: state.duration,
                 hash: state.hash,
                 isLate,
@@ -362,6 +390,11 @@ export function PendingUploadCard({ item, targetDate, onSuccess, isLate = false,
                                     <p className="text-[8px] text-primary font-bold">
                                         {state.isPreparing ? '読み込み中...' : 'アップロード準備完了'}
                                     </p>
+                                    {state.thumbnailStrategy === 'skipped' && !state.isPreparing && (
+                                        <p className="text-[8px] text-muted-foreground">
+                                            端末メモリ制約のためサムネを省略しています
+                                        </p>
+                                    )}
                                 </div>
                             </div>
                         )}

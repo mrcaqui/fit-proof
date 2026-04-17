@@ -93,6 +93,14 @@ export function getDeviceInfo(): DeviceInfo {
   return { browser, os, deviceType, isPWA }
 }
 
+export function isIOS(device: DeviceInfo = getDeviceInfo()): boolean {
+  return device.os.startsWith('iOS') || device.os.startsWith('iPadOS')
+}
+
+export function isIOSSafari(device: DeviceInfo = getDeviceInfo()): boolean {
+  return isIOS(device) && device.browser.startsWith('Safari')
+}
+
 // --- Constants ---
 
 const MAX_SESSIONS = 50

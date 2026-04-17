@@ -1,12 +1,14 @@
 import * as tus from 'tus-js-client'
 import { createBunnyVideo, deleteBunnyVideo, waitForBunnyProcessing, checkBunnyVideoStatus } from '@/lib/bunny'
 import { supabase } from '@/lib/supabase'
-import { UploadLogger, getDeviceInfo } from '@/lib/upload-logger'
+import { UploadLogger, getDeviceInfo, isIOS } from '@/lib/upload-logger'
 import { acquireWakeLock } from '@/lib/upload-wakelock'
 import {
   BUNNY_CREATE_MAX_ATTEMPTS,
   BUNNY_CREATE_RETRY_DELAYS,
+  LARGE_FILE_CHUNK_SHRINK_THRESHOLD_BYTES,
   TUS_CHUNK_SIZE,
+  TUS_CHUNK_SIZE_IOS_LARGE,
   TUS_INITIAL_PROGRESS_TIMEOUT_MS,
   TUS_STALLED_WARN_MS,
   getProcessingTimeout,
@@ -74,12 +76,15 @@ export type UploadStage =
   | 'uploading'
   | 'stalled'
 
+export type ThumbnailStrategy = 'downscaled' | 'skipped' | 'failed'
+
 export interface ExecuteUploadParams {
   file: File
   userId: string
   targetDate: string
   submissionItemId: number | null
   thumbnail: string | null
+  thumbnailStrategy: ThumbnailStrategy
   duration: number | null
   hash: string | null
   isLate: boolean
@@ -100,6 +105,7 @@ export async function executeUpload(params: ExecuteUploadParams): Promise<Execut
     targetDate,
     submissionItemId,
     thumbnail,
+    thumbnailStrategy,
     duration,
     hash,
     isLate,
@@ -207,6 +213,19 @@ export async function executeUpload(params: ExecuteUploadParams): Promise<Execut
       let initialProgressTimeout: ReturnType<typeof setTimeout> | null = null
       let stalledWarnTimeout: ReturnType<typeof setTimeout> | null = null
       let stalledSignaled = false
+      let lastUiProgressAt = 0
+      let resumeOffsetBytes = 0
+      let lastCheckpointSessionChunk = -1
+
+      // iOS + 大容量で chunkSize を縮小する safeMode
+      const useIOSLargeSafeMode =
+        isIOS() && file.size >= LARGE_FILE_CHUNK_SHRINK_THRESHOLD_BYTES
+      const effectiveChunkSize = useIOSLargeSafeMode
+        ? TUS_CHUNK_SIZE_IOS_LARGE
+        : TUS_CHUNK_SIZE
+      const safeMode: 'ios-large-file' | 'normal' = useIOSLargeSafeMode
+        ? 'ios-large-file'
+        : 'normal'
 
       const clearInitialTimers = () => {
         if (initialProgressTimeout) {
@@ -221,12 +240,14 @@ export async function executeUpload(params: ExecuteUploadParams): Promise<Execut
 
       await new Promise<void>((resolve, reject) => {
         logger.logInfo('tus-upload', 'tus-construct-start', {
-          chunkSize: TUS_CHUNK_SIZE,
+          chunkSize: effectiveChunkSize,
           fileSize: file.size,
+          safeMode,
+          thumbnailStrategy,
         })
         const upload = new tus.Upload(file, {
           endpoint: bunnyResult.tusEndpoint,
-          chunkSize: TUS_CHUNK_SIZE,
+          chunkSize: effectiveChunkSize,
           retryDelays: [0, 1000, 3000, 5000],
           headers: {
             AuthorizationSignature: bunnyResult.authorizationSignature,
@@ -258,13 +279,18 @@ export async function executeUpload(params: ExecuteUploadParams): Promise<Execut
           },
           onProgress: (bytesUploaded, bytesTotal) => {
             const percent = Math.round((bytesUploaded / bytesTotal) * 100)
+            const now = Date.now()
 
             if (!firstProgressReceived) {
               firstProgressReceived = true
               clearInitialTimers()
+              // tus-js-client v4 は HEAD 成功直後に _emitProgress(offset, size) を発火するため、
+              // 多くの場合この値は resume offset の厳密値と一致する（best-effort 近似）。
+              resumeOffsetBytes = bytesUploaded
               logger.logInfo('tus-upload', 'first-progress', {
                 bytesUploaded,
-                elapsedMs: Date.now() - tusStartTime,
+                resumeOffsetBytes,
+                elapsedMs: now - tusStartTime,
               })
               if (stalledSignaled) {
                 onStageChange?.('uploading')
@@ -274,10 +300,13 @@ export async function executeUpload(params: ExecuteUploadParams): Promise<Execut
               }
             }
 
-            onProgress?.(percent)
+            // 250ms throttle: iOS Safari の React state 更新頻度を抑える
+            if (now - lastUiProgressAt >= 250) {
+              lastUiProgressAt = now
+              onProgress?.(percent)
+            }
 
             // Throttled progress log: every 10% or 30 seconds
-            const now = Date.now()
             if (percent - lastLoggedPercent >= 10 || now - lastLoggedTime >= 30_000) {
               logger.logProgress('tus-upload', {
                 event: 'tus-progress',
@@ -287,6 +316,26 @@ export async function executeUpload(params: ExecuteUploadParams): Promise<Execut
               })
               lastLoggedPercent = percent
               lastLoggedTime = now
+            }
+
+            // chunk-checkpoint: 10 チャンク境界で session/絶対両軸を記録
+            const sessionPatchBytes = Math.max(0, bytesUploaded - resumeOffsetBytes)
+            const sessionChunkIndex = Math.floor(sessionPatchBytes / effectiveChunkSize)
+            if (
+              sessionChunkIndex > 0 &&
+              sessionChunkIndex % 10 === 0 &&
+              sessionChunkIndex !== lastCheckpointSessionChunk
+            ) {
+              lastCheckpointSessionChunk = sessionChunkIndex
+              logger.logInfo('tus-upload', 'chunk-checkpoint', {
+                sessionChunkIndex,
+                sessionPatchBytes,
+                resumeOffsetBytes,
+                bytesUploaded,
+                absoluteChunkIndex: Math.floor(bytesUploaded / effectiveChunkSize),
+                percent,
+                elapsedMs: now - tusStartTime,
+              })
             }
           },
           onSuccess: () => {
